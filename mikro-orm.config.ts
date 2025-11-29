@@ -1,17 +1,22 @@
-// mikro-orm.config.ts
 import { defineConfig } from '@mikro-orm/postgresql';
+import { config as loadEnv } from 'dotenv';
+
+loadEnv();
 
 export default defineConfig({
-  entities: [],
-  dbName: '', // será inferido da DATABASE_URL
   clientUrl: process.env.DATABASE_URL,
+  entities: ['./dist/**/*.entity.js'],
+  entitiesTs: ['./src/**/*.entity.ts'],
   driverOptions: {
     connection: {
-      ssl: { rejectUnauthorized: false }, // supabase geralmente precisa disso
+      ssl: { rejectUnauthorized: false },
     },
   },
   migrations: {
     path: 'dist/migrations',
     pathTs: 'src/migrations',
+  },
+  schemaGenerator: {
+    ignoreSchema: ['auth', 'storage', 'realtime', 'vault'],
   },
 });

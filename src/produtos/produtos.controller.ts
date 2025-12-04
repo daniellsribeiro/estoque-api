@@ -8,6 +8,7 @@ import { CreateProductMaterialDto } from './dto/create-product-material.dto';
 import { CreateProductSizeDto } from './dto/create-product-size.dto';
 import { CreateProductTypeDto } from './dto/create-product-type.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
+import { CreateStockAdjustDto } from './dto/create-stock-adjust.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductPriceDto } from './dto/update-product-price.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
@@ -120,6 +121,11 @@ export class ProdutosController {
     return this.produtosService.listProducts();
   }
 
+  @Get('estoque')
+  listEstoque() {
+    return this.produtosService.listEstoque();
+  }
+
   @Post(':id/preco')
   updateProductPrice(
     @Param('id') id: string,
@@ -127,6 +133,15 @@ export class ProdutosController {
     @CurrentUser() user: any,
   ): Promise<{ id: string; precoVendaAtual: number }> {
     return this.produtosService.updateProductPrice(id, dto, user?.id);
+  }
+
+  @Post(':id/estoque/baixa')
+  adjustStock(
+    @Param('id') id: string,
+    @Body() dto: CreateStockAdjustDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.produtosService.baixaEstoque(id, dto, user?.id);
   }
 
   @Get(':id/preco/historico')

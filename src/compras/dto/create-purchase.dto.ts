@@ -14,7 +14,7 @@ import {
 import { Type } from 'class-transformer';
 
 class PurchaseItemInput {
-  @IsUUID()
+  @IsUUID('all')
   produtoId: string;
 
   @Type(() => Number)
@@ -32,13 +32,13 @@ export class CreatePurchaseDto {
   @IsDateString()
   data: string;
 
-  @IsUUID()
+  @IsUUID('all')
   fornecedorId: string;
 
-  @IsUUID()
+  @IsUUID('all')
   tipoPagamentoId: string;
 
-  @IsUUID()
+  @IsUUID('all')
   @IsOptional()
   cartaoContaId?: string;
 
@@ -49,8 +49,8 @@ export class CreatePurchaseDto {
 
   @Type(() => Number)
   @IsNumber()
-  @IsOptional()
-  frete?: number;
+  @IsPositive()
+  totalCompra: number;
 
   @IsString()
   @IsOptional()

@@ -13,6 +13,21 @@ export class ProductStockHistory extends BaseHistoryEntity {
   @Property({ type: Number })
   quantidadeNova: number;
 
+  @Property({ type: Number, default: 0 })
+  quantidadeAdicionada: number = 0;
+
+  @Property({ type: Number, default: 0 })
+  quantidadeSubtraida: number = 0;
+
+  @Property({ fieldName: 'id_compra', nullable: true })
+  compraId?: string;
+
+  @Property({ fieldName: 'id_venda', nullable: true })
+  vendaId?: string;
+
+  @Property({ type: Date, fieldName: 'data_mudanca' })
+  dataMudanca: Date = new Date();
+
   @Property()
   motivo: string;
 

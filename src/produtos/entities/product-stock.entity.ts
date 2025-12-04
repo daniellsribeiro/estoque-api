@@ -13,13 +13,18 @@ export class ProductStock extends BaseAuditEntity {
 
   @BeforeUpdate()
   registerHistory(args: any) {
+    const oldQty = args?.changeSet?.originalEntity?.quantidadeAtual ?? this.quantidadeAtual;
+    const newQty = this.quantidadeAtual;
     const history = new ProductStockHistory();
     history.produto = this.produto;
-    history.quantidadeAnterior =
-      args?.changeSet?.originalEntity?.quantidadeAtual ?? this.quantidadeAtual;
-    history.quantidadeNova = this.quantidadeAtual;
+    history.quantidadeAnterior = oldQty;
+    history.quantidadeNova = newQty;
+    const diff = newQty - oldQty;
+    history.quantidadeAdicionada = diff > 0 ? diff : 0;
+    history.quantidadeSubtraida = diff < 0 ? Math.abs(diff) : 0;
     history.motivo = 'ATUALIZACAO';
     history.referencia = undefined;
+    history.dataMudanca = new Date();
     history.createdById = this.updatedById ?? this.createdById;
     args.em.persist(history);
   }

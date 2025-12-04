@@ -1,3 +1,4 @@
+﻿import { CreateStockAdjustDto } from './dto/create-stock-adjust.dto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@mikro-orm/nestjs';
 import { EntityRepository } from '@mikro-orm/postgresql';
@@ -19,6 +20,7 @@ import { ProductType } from './entities/product-type.entity';
 import { Product } from './entities/product.entity';
 import { Supplier } from './entities/supplier.entity';
 import { ProductStock } from './entities/product-stock.entity';
+import { ProductStockHistory } from './entities/product-stock-history.entity';
 import { PurchaseItem } from '../compras/entities/purchase-item.entity';
 import { SaleItem } from '../vendas/entities/sale-item.entity';
 import { ProductPrice } from './entities/product-price.entity';
@@ -40,6 +42,8 @@ export class ProdutosService {
     private readonly productRepo: EntityRepository<Product>,
     @InjectRepository(ProductStock)
     private readonly stockRepo: EntityRepository<ProductStock>,
+    @InjectRepository(ProductStockHistory)
+    private readonly stockHistoryRepo: EntityRepository<ProductStockHistory>,
     @InjectRepository(ProductPrice)
     private readonly priceRepo: EntityRepository<ProductPrice>,
     @InjectRepository(ProductPriceHistory)
@@ -59,7 +63,7 @@ export class ProdutosService {
   async createType(dto: CreateProductTypeDto, userId?: string) {
     const existing = await this.typeRepo.findOne({ codigo: dto.codigo });
     if (existing) {
-      throw new BadRequestException('Código de tipo já existe');
+      throw new BadRequestException('CÃ³digo de tipo jÃ¡ existe');
     }
     const type = this.typeRepo.create({
       ...dto,
@@ -73,7 +77,7 @@ export class ProdutosService {
   async createColor(dto: CreateProductColorDto, userId?: string) {
     const exists = await this.colorRepo.findOne({ codigo: dto.codigo });
     if (exists) {
-      throw new BadRequestException('Código de cor já existe');
+      throw new BadRequestException('CÃ³digo de cor jÃ¡ existe');
     }
     const color = this.colorRepo.create({
       ...dto,
@@ -87,7 +91,7 @@ export class ProdutosService {
   async createMaterial(dto: CreateProductMaterialDto, userId?: string) {
     const exists = await this.materialRepo.findOne({ codigo: dto.codigo });
     if (exists) {
-      throw new BadRequestException('Código de material já existe');
+      throw new BadRequestException('CÃ³digo de material jÃ¡ existe');
     }
     const material = this.materialRepo.create({
       ...dto,
@@ -102,7 +106,7 @@ export class ProdutosService {
     const codigo = dto.codigo.padStart(3, '0');
     const exists = await this.sizeRepo.findOne({ codigo });
     if (exists) {
-      throw new BadRequestException('Código de tamanho já existe');
+      throw new BadRequestException('CÃ³digo de tamanho jÃ¡ existe');
     }
     const size = this.sizeRepo.create({
       ...dto,
@@ -121,11 +125,11 @@ export class ProdutosService {
   async deleteType(id: string, userId?: string) {
     const entity = await this.typeRepo.findOne({ id });
     if (!entity) {
-      throw new NotFoundException('Tipo não encontrado');
+      throw new NotFoundException('Tipo nÃ£o encontrado');
     }
     const used = await this.productRepo.count({ tipo: entity });
     if (used > 0) {
-      throw new BadRequestException('Tipo já utilizado em produtos');
+      throw new BadRequestException('Tipo jÃ¡ utilizado em produtos');
     }
     await this.typeRepo.getEntityManager().removeAndFlush(entity);
     return { deleted: true, deletedBy: userId };
@@ -138,11 +142,11 @@ export class ProdutosService {
   async deleteColor(id: string, userId?: string) {
     const entity = await this.colorRepo.findOne({ id });
     if (!entity) {
-      throw new NotFoundException('Cor não encontrada');
+      throw new NotFoundException('Cor nÃ£o encontrada');
     }
     const used = await this.productRepo.count({ cor: entity });
     if (used > 0) {
-      throw new BadRequestException('Cor já utilizada em produtos');
+      throw new BadRequestException('Cor jÃ¡ utilizada em produtos');
     }
     await this.colorRepo.getEntityManager().removeAndFlush(entity);
     return { deleted: true, deletedBy: userId };
@@ -155,11 +159,11 @@ export class ProdutosService {
   async deleteMaterial(id: string, userId?: string) {
     const entity = await this.materialRepo.findOne({ id });
     if (!entity) {
-      throw new NotFoundException('Material não encontrado');
+      throw new NotFoundException('Material nÃ£o encontrado');
     }
     const used = await this.productRepo.count({ material: entity });
     if (used > 0) {
-      throw new BadRequestException('Material já utilizado em produtos');
+      throw new BadRequestException('Material jÃ¡ utilizado em produtos');
     }
     await this.materialRepo.getEntityManager().removeAndFlush(entity);
     return { deleted: true, deletedBy: userId };
@@ -172,11 +176,11 @@ export class ProdutosService {
   async deleteSize(id: string, userId?: string) {
     const entity = await this.sizeRepo.findOne({ id });
     if (!entity) {
-      throw new NotFoundException('Tamanho não encontrado');
+      throw new NotFoundException('Tamanho nÃ£o encontrado');
     }
     const used = await this.productRepo.count({ tamanho: entity });
     if (used > 0) {
-      throw new BadRequestException('Tamanho já utilizado em produtos');
+      throw new BadRequestException('Tamanho jÃ¡ utilizado em produtos');
     }
     await this.sizeRepo.getEntityManager().removeAndFlush(entity);
     return { deleted: true, deletedBy: userId };
@@ -185,7 +189,7 @@ export class ProdutosService {
   async createSupplier(dto: CreateSupplierDto, userId?: string) {
     const exists = await this.supplierRepo.findOne({ nome: dto.nome });
     if (exists) {
-      throw new BadRequestException('Fornecedor com este nome já existe');
+      throw new BadRequestException('Fornecedor com este nome jÃ¡ existe');
     }
     const supplier = this.supplierRepo.create({
       ...dto,
@@ -203,12 +207,12 @@ export class ProdutosService {
   async updateSupplier(id: string, dto: UpdateSupplierDto, userId?: string) {
     const supplier = await this.supplierRepo.findOne({ id });
     if (!supplier) {
-      throw new NotFoundException('Fornecedor não encontrado');
+      throw new NotFoundException('Fornecedor nÃ£o encontrado');
     }
     if (dto.nome && dto.nome !== supplier.nome) {
       const exists = await this.supplierRepo.findOne({ nome: dto.nome });
       if (exists) {
-        throw new BadRequestException('Fornecedor com este nome já existe');
+        throw new BadRequestException('Fornecedor com este nome jÃ¡ existe');
       }
       supplier.nome = dto.nome;
     }
@@ -224,11 +228,11 @@ export class ProdutosService {
   async deleteSupplier(id: string, userId?: string) {
     const supplier = await this.supplierRepo.findOne({ id });
     if (!supplier) {
-      throw new NotFoundException('Fornecedor não encontrado');
+      throw new NotFoundException('Fornecedor nÃ£o encontrado');
     }
     const usedInCompras = await this.purchaseRepo.count({ fornecedor: supplier });
     if (usedInCompras > 0) {
-      throw new BadRequestException('Fornecedor já utilizado em compras');
+      throw new BadRequestException('Fornecedor jÃ¡ utilizado em compras');
     }
     await this.supplierRepo.getEntityManager().removeAndFlush(supplier);
     return { deleted: true, deletedBy: userId };
@@ -258,13 +262,13 @@ export class ProdutosService {
         return code;
       }
     }
-    throw new BadRequestException('Falha ao gerar código único para produto');
+    throw new BadRequestException('Falha ao gerar cÃ³digo Ãºnico para produto');
   }
 
   async createProduct(dto: CreateProductDto, userId?: string) {
     const tipo = await this.typeRepo.findOne({ id: dto.tipoProdutoId });
     if (!tipo) {
-      throw new NotFoundException('Tipo de produto não encontrado');
+      throw new NotFoundException('Tipo de produto nÃ£o encontrado');
     }
 
     const cor = dto.corId ? await this.colorRepo.findOne({ id: dto.corId }) : undefined;
@@ -325,14 +329,55 @@ export class ProdutosService {
 
   async listProducts() {
     return this.productRepo.findAll({
-      populate: ['tipo', 'cor', 'material', 'tamanho', 'preco'],
+      populate: ['tipo', 'cor', 'material', 'tamanho', 'preco', 'estoque'],
     });
+  }
+
+  async listEstoque() {
+    const produtos = await this.productRepo.findAll({
+      populate: ['tipo', 'cor', 'material', 'tamanho', 'estoque'],
+      orderBy: { nome: 'asc' },
+    });
+    const historyRepo = this.stockHistoryRepo;
+    const result = await Promise.all(
+      produtos.map(async (p) => {
+        const ultimoHistorico = await historyRepo.findOne(
+          { produto: p },
+          { orderBy: { createdAt: 'desc' } },
+        );
+        return {
+          id: p.id,
+          codigo: p.codigo,
+          nome: p.nome,
+          tipo: p.tipo?.nome,
+          cor: p.cor?.nome,
+          material: p.material?.nome,
+          tamanho: p.tamanho?.codigo,
+          quantidadeAtual: p.estoque?.quantidadeAtual ?? 0,
+          atualizadoEm: ultimoHistorico?.dataMudanca ?? p.updatedAt ?? p.createdAt,
+          historico: ultimoHistorico
+            ? {
+                quantidadeAnterior: ultimoHistorico.quantidadeAnterior,
+                quantidadeNova: ultimoHistorico.quantidadeNova,
+                quantidadeAdicionada: ultimoHistorico.quantidadeAdicionada,
+                quantidadeSubtraida: ultimoHistorico.quantidadeSubtraida,
+                motivo: ultimoHistorico.motivo,
+                referencia: ultimoHistorico.referencia,
+                compraId: ultimoHistorico.compraId,
+                vendaId: ultimoHistorico.vendaId,
+                dataMudanca: ultimoHistorico.dataMudanca,
+              }
+            : null,
+        };
+      }),
+    );
+    return result;
   }
 
   async updateProduct(id: string, dto: UpdateProductDto, userId?: string) {
     const product = await this.productRepo.findOne({ id });
     if (!product) {
-      throw new NotFoundException('Produto não encontrado');
+      throw new NotFoundException('Produto nÃ£o encontrado');
     }
     if (dto.nome) {
       product.nome = dto.nome;
@@ -352,7 +397,7 @@ export class ProdutosService {
   ): Promise<{ id: string; precoVendaAtual: number }> {
     const product = await this.productRepo.findOne({ id }, { populate: ['preco'] });
     if (!product) {
-      throw new NotFoundException('Produto não encontrado');
+      throw new NotFoundException('Produto nÃ£o encontrado');
     }
     const em = this.productRepo.getEntityManager();
     let preco = product.preco;
@@ -383,10 +428,65 @@ export class ProdutosService {
     return { id: preco.id, precoVendaAtual: preco.precoVendaAtual };
   }
 
+  async baixaEstoque(produtoId: string, dto: CreateStockAdjustDto, userId?: string) {
+    const produto = await this.productRepo.findOne({ id: produtoId }, { populate: ['estoque'] });
+    if (!produto) {
+      throw new NotFoundException('Produto nÃ£o encontrado');
+    }
+    if (dto.quantidade <= 0) {
+      throw new BadRequestException('Quantidade deve ser maior que zero');
+    }
+
+    const em = this.productRepo.getEntityManager();
+    let estoque = produto.estoque;
+    if (!estoque) {
+      estoque = this.stockRepo.create({
+        produto,
+        quantidadeAtual: 0,
+        createdById: userId,
+        updatedById: userId,
+      });
+      produto.estoque = estoque;
+      em.persist(estoque);
+    }
+
+    const anterior = estoque.quantidadeAtual ?? 0;
+    if (dto.quantidade > anterior) {
+      throw new BadRequestException('Quantidade em estoque insuficiente para baixa');
+    }
+
+    const nova = anterior - dto.quantidade;
+    estoque.quantidadeAtual = nova;
+    estoque.updatedById = userId;
+    em.persist(estoque);
+
+    const history = this.stockHistoryRepo.create({
+      produto,
+      quantidadeAnterior: anterior,
+      quantidadeNova: nova,
+      quantidadeAdicionada: 0,
+      quantidadeSubtraida: dto.quantidade,
+      motivo: dto.motivo ?? 'BAIXA',
+      referencia: dto.referencia,
+      compraId: dto.compraId,
+      vendaId: dto.vendaId,
+      dataMudanca: new Date(),
+      createdById: userId,
+    });
+    em.persist(history);
+
+    await em.flush();
+    return {
+      produtoId: produto.id,
+      quantidadeAnterior: anterior,
+      quantidadeNova: nova,
+    };
+  }
+
   async listPriceHistory(productId: string) {
     const product = await this.productRepo.findOne({ id: productId });
     if (!product) {
-      throw new NotFoundException('Produto não encontrado');
+      throw new NotFoundException('Produto nÃ£o encontrado');
     }
     return this.priceHistoryRepo.find(
       { produto: product },
@@ -400,15 +500,15 @@ export class ProdutosService {
       { populate: ['estoque', 'preco'] },
     );
     if (!product) {
-      throw new NotFoundException('Produto não encontrado');
+      throw new NotFoundException('Produto nÃ£o encontrado');
     }
     if (product.estoque && product.estoque.quantidadeAtual > 0) {
-      throw new BadRequestException('Não é possível excluir produto com estoque maior que zero');
+      throw new BadRequestException('NÃ£o Ã© possÃ­vel excluir produto com estoque maior que zero');
     }
     const usedInPurchases = await this.purchaseItemRepo.count({ item: product });
     const usedInSales = await this.saleItemRepo.count({ item: product });
     if (usedInPurchases > 0 || usedInSales > 0) {
-      throw new BadRequestException('Produto está em uso em compras ou vendas');
+      throw new BadRequestException('Produto estÃ¡ em uso em compras ou vendas');
     }
 
     const em = this.productRepo.getEntityManager();
@@ -424,3 +524,4 @@ export class ProdutosService {
     return { deleted: true, deletedBy: userId };
   }
 }
+

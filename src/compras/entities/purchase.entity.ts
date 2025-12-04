@@ -6,6 +6,7 @@ import {
   Property,
 } from '@mikro-orm/core';
 import { BaseAuditEntity } from '../../common/entities/base.entity';
+import { CardAccount } from '../../financeiro/entities/card-account.entity';
 import { PaymentType } from '../../financeiro/entities/payment-type.entity';
 import { Supplier } from '../../produtos/entities/supplier.entity';
 import { PurchaseItem } from './purchase-item.entity';
@@ -22,14 +23,14 @@ export class Purchase extends BaseAuditEntity {
   @ManyToOne(() => PaymentType)
   tipoPagamento: PaymentType;
 
+  @ManyToOne(() => CardAccount, { nullable: true })
+  cartaoConta?: CardAccount;
+
   @Property({ default: 1 })
   parcelas: number = 1;
 
-  @Property({ columnType: 'numeric(12,2)', default: 0 })
-  frete: number = 0;
-
-  @Property({ columnType: 'numeric(12,2)' })
-  totalCompra: number;
+  @Property({ columnType: 'numeric(12,2)', fieldName: 'total_compra' })
+  totalCompra: number = 0;
 
   @Property()
   status: string;

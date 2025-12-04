@@ -46,13 +46,6 @@ export class FinanceiroService {
   async createPaymentType(dto: CreatePaymentTypeDto, userId?: string) {
     const paymentType = this.paymentTypeRepo.create({
       descricao: dto.descricao,
-      taxaFixa: dto.taxaFixa ?? 0,
-      taxaPercentual: dto.taxaPercentual ?? 0,
-      taxaParcela: dto.taxaParcela ?? 0,
-      descontoPercentual: dto.descontoPercentual ?? 0,
-      parcelavel: dto.parcelavel ?? false,
-      minParcelas: dto.minParcelas ?? 1,
-      maxParcelas: dto.maxParcelas ?? dto.minParcelas ?? 1,
       ativo: dto.ativo ?? true,
       createdById: userId,
       updatedById: userId,
@@ -74,6 +67,23 @@ export class FinanceiroService {
     });
     await this.cardAccountRepo.getEntityManager().persistAndFlush(cardAccount);
     return cardAccount;
+  }
+
+  async updateCardAccount(id: string, dto: CreateCardAccountDto, userId?: string) {
+    const card = await this.cardAccountRepo.findOne({ id });
+    if (!card) {
+      throw new NotFoundException('Cartão/conta não encontrado');
+    }
+    card.nome = dto.nome ?? card.nome;
+    card.banco = dto.banco ?? card.banco;
+    card.bandeira = dto.bandeira ?? card.bandeira;
+    card.diaFechamento = dto.diaFechamento ?? card.diaFechamento;
+    card.diaVencimento = dto.diaVencimento ?? card.diaVencimento;
+    card.pixChave = dto.pixChave ?? card.pixChave;
+    card.ativo = dto.ativo ?? card.ativo;
+    card.updatedById = userId;
+    await this.cardAccountRepo.getEntityManager().persistAndFlush(card);
+    return card;
   }
 
   async listCardAccounts() {

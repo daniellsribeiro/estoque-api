@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateCardAccountDto } from './dto/create-card-account.dto';
@@ -38,6 +38,15 @@ export class FinanceiroController {
   @Get('cartoes-contas')
   listCardAccounts() {
     return this.financeiroService.listCardAccounts();
+  }
+
+  @Patch('cartoes-contas/:id')
+  updateCardAccount(
+    @Param('id') id: string,
+    @Body() dto: CreateCardAccountDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.financeiroService.updateCardAccount(id, dto, user?.id);
   }
 
   @Post('cartoes-contas/regras')

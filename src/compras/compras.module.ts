@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { PaymentType } from '../financeiro/entities/payment-type.entity';
 import { Product } from '../produtos/entities/product.entity';
+import { ProductStock } from '../produtos/entities/product-stock.entity';
+import { ProductStockHistory } from '../produtos/entities/product-stock-history.entity';
 import { Supplier } from '../produtos/entities/supplier.entity';
 import { CardAccount } from '../financeiro/entities/card-account.entity';
 import { Purchase } from './entities/purchase.entity';
@@ -19,6 +21,8 @@ import { ComprasService } from './compras.service';
       Supplier,
       PaymentType,
       Product,
+      ProductStock,
+      ProductStockHistory,
       CardAccount,
     ]),
   ],

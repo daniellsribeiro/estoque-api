@@ -12,11 +12,14 @@ export class PurchasePayment extends BaseAuditEntity {
   @Property()
   nParcela: number;
 
-  @Property({ type: Date })
-  dataVencimento: Date;
+  @Property({ type: Date, nullable: true })
+  dataVencimento?: Date;
 
   @Property({ columnType: 'numeric(12,2)' })
   valorParcela: number;
+
+  @Property({ columnType: 'numeric(12,2)', fieldName: 'valor_compra', nullable: true })
+  valorCompra?: number;
 
   @Property()
   statusPagamento: string;

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ComprasService } from './compras.service';
@@ -15,11 +15,6 @@ export class ComprasController {
     return this.comprasService.listPurchases();
   }
 
-  @Post()
-  createPurchase(@Body() dto: CreatePurchaseDto, @CurrentUser() user: any) {
-    return this.comprasService.createPurchase(dto, user?.id);
-  }
-
   @Get('pagamentos')
   listPayments() {
     return this.comprasService.listPayments();
@@ -32,5 +27,15 @@ export class ComprasController {
     @CurrentUser() user: any,
   ) {
     return this.comprasService.updatePaymentStatus(id, dto, user?.id);
+  }
+
+  @Get(':id')
+  getPurchase(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
+    return this.comprasService.getPurchase(id);
+  }
+
+  @Post()
+  createPurchase(@Body() dto: CreatePurchaseDto, @CurrentUser() user: any) {
+    return this.comprasService.createPurchase(dto, user?.id);
   }
 }

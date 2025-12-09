@@ -40,6 +40,17 @@ export class ComprasService {
     return this.purchaseRepo.findAll({ populate: ["fornecedor", "tipoPagamento", "pagamentos"] });
   }
 
+  async getPurchase(id: string) {
+    const compra = await this.purchaseRepo.findOne(
+      { id },
+      { populate: ["fornecedor", "tipoPagamento", "cartaoConta", "itens", "itens.item", "pagamentos"] },
+    );
+    if (!compra) {
+      throw new NotFoundException("Compra não encontrada");
+    }
+    return compra;
+  }
+
   async createPurchase(dto: CreatePurchaseDto, userId?: string) {
     const fornecedor = await this.supplierRepo.findOne({ id: dto.fornecedorId });
     if (!fornecedor) throw new NotFoundException("Fornecedor não encontrado");

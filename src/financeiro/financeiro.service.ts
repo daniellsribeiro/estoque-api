@@ -128,15 +128,18 @@ export class FinanceiroService {
   }
 
   private buildOffsets(parcelas: number, rule?: CardPaymentRule, overrideEscalonado?: boolean, overridePrazo?: number) {
-    const offsets: number[] = [];
     const useEscalonado = overrideEscalonado ?? rule?.prazoEscalonadoPadrao ?? false;
     const prazoFixo = overridePrazo ?? rule?.prazoRecebimentoDias ?? 0;
+
+    if (!useEscalonado) {
+      // Quando não for escalonado, todas as parcelas recebem o mesmo prazo.
+      return Array(parcelas).fill(prazoFixo);
+    }
+
+    // Escalonado: 1ª em 31 dias, demais a cada 30 dias.
+    const offsets: number[] = [];
     for (let i = 0; i < parcelas; i++) {
-      if (useEscalonado) {
-        offsets.push(i === 0 ? 31 : 31 + i * 30);
-      } else {
-        offsets.push(prazoFixo);
-      }
+      offsets.push(i === 0 ? 31 : 31 + i * 30);
     }
     return offsets;
   }
@@ -144,30 +147,61 @@ export class FinanceiroService {
   async createRecebimentos(dto: CreateRecebimentoDto, userId?: string) {
     const em = this.recebimentoRepo.getEntityManager();
     const parcelas = dto.parcelas ?? 1;
-    const dataVenda = new Date(dto.dataVenda);
-    const rule = dto.regraId ? await this.cardRuleRepo.findOne({ id: dto.regraId }) : undefined;
-    const offsets = this.buildOffsets(parcelas, rule ?? undefined, dto.usarEscalonadoPadrao, dto.prazoRecebimentoDias);
-
-    const valorParcela = Number(dto.valorTotal) / parcelas;
+    const dataVenda = this.parseDateOnly(dto.dataVenda);
     const sale = dto.vendaId ? await this.saleRepo.findOne({ id: dto.vendaId }) : undefined;
     const card = dto.cartaoContaId ? await this.cardAccountRepo.findOne({ id: dto.cartaoContaId }) : undefined;
     const tipoPag = dto.tipoPagamentoId ? await this.paymentTypeRepo.findOne({ id: dto.tipoPagamentoId }) : undefined;
 
+    const normalize = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const parseRange = (tipo: string) => {
+      const nums = (tipo.match(/\d+/g) || []).map((n) => Number(n)).filter((n) => !Number.isNaN(n));
+      if (nums.length === 1) return { min: nums[0], max: nums[0] };
+      if (nums.length >= 2) return { min: Math.min(nums[0], nums[1]), max: Math.max(nums[0], nums[1]) };
+      if (normalize(tipo).includes('vista') || normalize(tipo).includes('av')) return { min: 1, max: 1 };
+      return null;
+    };
+
+    let rule = dto.regraId ? await this.cardRuleRepo.findOne({ id: dto.regraId }) : undefined;
+    if (!rule && card) {
+      const tipoNorm = tipoPag ? normalize(tipoPag.descricao || '') : '';
+      const regras = await this.cardRuleRepo.find({ cartao: card });
+      const compat = regras.filter((r) => {
+        const tNorm = normalize(r.tipo || '');
+        if (tipoNorm.includes('cred')) return tNorm.includes('cred');
+        if (tipoNorm.includes('deb')) return tNorm.includes('deb');
+        if (tipoNorm.includes('pix')) return tNorm.includes('pix');
+        return true;
+      });
+      const lista = compat.length ? compat : regras;
+      const exact = lista.find((r) => {
+        const range = parseRange(r.tipo || '');
+        if (!range) return false;
+        return parcelas >= range.min && parcelas <= range.max;
+      });
+      rule = exact ?? lista[0];
+    }
+
+    const useEscalonado = dto.usarEscalonadoPadrao ?? rule?.prazoEscalonadoPadrao ?? false;
+    const efetivas = useEscalonado ? parcelas : 1;
+    const offsets = this.buildOffsets(efetivas, rule ?? undefined, useEscalonado, dto.prazoRecebimentoDias);
+    const valorParcela = useEscalonado ? Number(dto.valorTotal) / parcelas : Number(dto.valorTotal);
+
     const recebimentos: Recebimento[] = [];
-    for (let i = 0; i < parcelas; i++) {
+    for (let i = 0; i < efetivas; i++) {
       const taxaPerc = (rule?.taxaPercentual ?? 0) + (rule?.adicionalParcela ?? 0);
       const taxaValorPerc = (valorParcela * taxaPerc) / 100;
       const taxaFixa = rule?.taxaFixa ?? 0;
       const valorTaxa = taxaValorPerc + taxaFixa;
       const valorLiquido = valorParcela - valorTaxa;
+      const offset = offsets[i] ?? 0;
       const dataPrevista = new Date(dataVenda);
-      dataPrevista.setDate(dataPrevista.getDate() + (offsets[i] ?? 0));
+      dataPrevista.setDate(dataPrevista.getDate() + offset);
 
       const rec = this.recebimentoRepo.create({
         venda: sale,
         tipoPagamento: tipoPag,
         cartaoConta: card,
-        parcelaNumero: i + 1,
+        parcelaNumero: useEscalonado ? i + 1 : 1,
         valorBruto: valorParcela,
         valorTaxa,
         valorLiquido,
@@ -181,6 +215,14 @@ export class FinanceiroService {
     }
     await em.flush();
     return recebimentos;
+  }
+
+  private parseDateOnly(dateStr: string) {
+    const parsed = new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new Error('Data invΓêÆlida');
+    }
+    return parsed;
   }
 
   async listRecebimentos() {

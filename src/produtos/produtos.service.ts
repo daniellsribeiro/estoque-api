@@ -248,6 +248,10 @@ export class ProdutosService {
     return customer;
   }
 
+  async listCustomers() {
+    return this.customerRepo.findAll();
+  }
+
   private async generateProductCode(tipo: ProductType) {
     const prefix = `h${tipo.codigo}`;
     const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -491,6 +495,17 @@ export class ProdutosService {
     return this.priceHistoryRepo.find(
       { produto: product },
       { orderBy: { createdAt: 'DESC' } },
+    );
+  }
+
+  async listStockHistory(productId: string) {
+    const product = await this.productRepo.findOne({ id: productId });
+    if (!product) {
+      throw new NotFoundException('Produto nao encontrado');
+    }
+    return this.stockHistoryRepo.find(
+      { produto: product },
+      { orderBy: { dataMudanca: 'DESC' } },
     );
   }
 

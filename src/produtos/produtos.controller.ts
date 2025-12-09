@@ -106,11 +106,6 @@ export class ProdutosController {
     return this.produtosService.deleteSupplier(id, user?.id);
   }
 
-  @Post('clientes')
-  createCustomer(@Body() dto: CreateCustomerDto, @CurrentUser() user: any) {
-    return this.produtosService.createCustomer(dto, user?.id);
-  }
-
   @Post()
   createProduct(@Body() dto: CreateProductDto, @CurrentUser() user: any) {
     return this.produtosService.createProduct(dto, user?.id);
@@ -142,6 +137,11 @@ export class ProdutosController {
     @CurrentUser() user: any,
   ) {
     return this.produtosService.baixaEstoque(id, dto, user?.id);
+  }
+
+  @Get(':id/estoque/historico')
+  listStockHistory(@Param('id') id: string) {
+    return this.produtosService.listStockHistory(id);
   }
 
   @Get(':id/preco/historico')

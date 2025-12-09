@@ -27,8 +27,8 @@ export class Recebimento extends BaseAuditEntity {
   @Property({ columnType: 'numeric(12,2)' })
   valorLiquido: number;
 
-  @Property({ type: Date })
-  dataPrevista: Date;
+  @Property({ type: Date, nullable: true })
+  dataPrevista?: Date;
 
   @Property({ type: Date, nullable: true })
   dataRecebida?: Date;

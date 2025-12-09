@@ -9,6 +9,7 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -24,7 +25,7 @@ class PurchaseItemInput {
 
   @Type(() => Number)
   @IsNumber()
-  @IsPositive()
+  @Min(0)
   valorUnit: number;
 }
 
@@ -49,7 +50,7 @@ export class CreatePurchaseDto {
 
   @Type(() => Number)
   @IsNumber()
-  @IsPositive()
+  @Min(0)
   totalCompra: number;
 
   @IsString()

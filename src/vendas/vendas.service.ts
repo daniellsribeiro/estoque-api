@@ -38,6 +38,9 @@ export class VendasService {
     private readonly recebimentoRepo: EntityRepository<Recebimento>,
     private readonly financeiroService: FinanceiroService,
   ) {}
+  private sumRecebimentosLiquido(recebs: Recebimento[]) {
+    return recebs.reduce((sum, r) => sum + Number(r.valorLiquido ?? r.valorBruto ?? 0), 0);
+  }
 
   async listSales(): Promise<any[]> {
     const sales = await this.saleRepo.findAll({
@@ -199,12 +202,15 @@ export class VendasService {
       frete: dto.frete ?? 0,
       descontoTotal: dto.descontoTotal ?? 0,
       totalVenda: 0,
+      valorLiquido: 0,
       status: 'pendente',
       observacoes: dto.observacoes,
       createdById: userId,
       updatedById: userId,
     });
     em.persist(sale);
+    // garante id da venda antes de registrar historico de estoque
+    await em.flush();
 
     let totalItens = 0;
     for (const it of dto.itens) {
@@ -235,21 +241,14 @@ export class VendasService {
       const novaQuantidade = disponivel - it.qtde;
       estoque.quantidadeAtual = novaQuantidade;
       estoque.updatedById = userId;
-      em.persist(estoque);
-
-      const history = this.stockHistoryRepo.create({
-        produto,
-        quantidadeAnterior: disponivel,
-        quantidadeNova: novaQuantidade,
-        quantidadeAdicionada: 0,
-        quantidadeSubtraida: it.qtde,
+      (estoque as any)._historyMeta = {
         motivo: 'VENDA',
         referencia: sale.id,
         vendaId: sale.id,
         dataMudanca: dataVenda,
         createdById: userId,
-      });
-      em.persist(history);
+      };
+      em.persist(estoque);
 
       const subtotal = it.qtde * it.precoUnit;
       totalItens += subtotal;
@@ -271,6 +270,7 @@ export class VendasService {
     const totalVenda = Math.max(0, totalItens + frete - desconto);
     const isImmediatePayment = this.isImmediate(tipoPagamento.descricao ?? '');
     sale.totalVenda = totalVenda;
+    sale.valorLiquido = totalVenda;
     sale.status = dto.pagoAgora && isImmediatePayment ? 'paga' : 'pendente';
 
     await em.flush();
@@ -326,6 +326,10 @@ export class VendasService {
       this.normalizePagoParaRecebido(recebimentos, dataPagNorm);
       await em.flush();
       sale.status = this.computeStatusFromRecebimentos(recebimentos, sale.status);
+      sale.valorLiquido = this.sumRecebimentosLiquido(recebimentos);
+      await em.flush();
+    } else {
+      sale.valorLiquido = this.sumRecebimentosLiquido(recebimentos) || totalVenda;
       await em.flush();
     }
 
@@ -397,6 +401,7 @@ export class VendasService {
     });
     this.normalizePagoParaRecebido(recebimentosAlvo, hojeRef);
     sale.status = isPix ? 'recebido' : this.computeStatusFromRecebimentos(recebimentosAlvo, sale.status);
+    sale.valorLiquido = this.sumRecebimentosLiquido(recebimentosAlvo) || sale.totalVenda;
     sale.updatedById = userId;
     const em = this.saleRepo.getEntityManager();
     await em.persistAndFlush(sale);
@@ -431,21 +436,14 @@ async cancelSale(id: string, userId?: string) {
       const nova = anterior + it.qtde;
       estoque.quantidadeAtual = nova;
       estoque.updatedById = userId;
-      em.persist(estoque);
-
-      const hist = this.stockHistoryRepo.create({
-        produto,
-        quantidadeAnterior: anterior,
-        quantidadeNova: nova,
-        quantidadeAdicionada: it.qtde,
-        quantidadeSubtraida: 0,
+      (estoque as any)._historyMeta = {
         motivo: 'CANCELAMENTO_VENDA',
         referencia: sale.id,
         vendaId: sale.id,
         dataMudanca: new Date(),
         createdById: userId,
-      });
-      em.persist(hist);
+      };
+      em.persist(estoque);
     }
 
     const recebimentos = await this.recebimentoRepo.find({ venda: sale });
@@ -537,8 +535,11 @@ async cancelSale(id: string, userId?: string) {
       this.normalizePagoParaRecebido(recebimentosNovos, hojeRef);
       await this.recebimentoRepo.getEntityManager().flush();
       sale.status = this.computeStatusFromRecebimentos(recebimentosNovos, sale.status);
+      sale.valorLiquido = this.sumRecebimentosLiquido(recebimentosNovos) || sale.totalVenda;
       await this.saleRepo.getEntityManager().persistAndFlush(sale);
     }
+    sale.valorLiquido = this.sumRecebimentosLiquido(recebimentosNovos) || sale.totalVenda;
+    await this.saleRepo.getEntityManager().persistAndFlush(sale);
 
     return this.getSale(id);
   }

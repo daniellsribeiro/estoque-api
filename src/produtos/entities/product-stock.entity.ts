@@ -22,10 +22,14 @@ export class ProductStock extends BaseAuditEntity {
     const diff = newQty - oldQty;
     history.quantidadeAdicionada = diff > 0 ? diff : 0;
     history.quantidadeSubtraida = diff < 0 ? Math.abs(diff) : 0;
-    history.motivo = 'ATUALIZACAO';
-    history.referencia = undefined;
-    history.dataMudanca = new Date();
-    history.createdById = this.updatedById ?? this.createdById;
+    const meta = (this as any)._historyMeta ?? {};
+    history.motivo = meta.motivo ?? 'ATUALIZACAO';
+    history.referencia = meta.referencia;
+    history.compraId = meta.compraId;
+    history.vendaId = meta.vendaId;
+    history.dataMudanca = meta.dataMudanca ?? new Date();
+    history.createdById = meta.createdById ?? this.updatedById ?? this.createdById;
     args.em.persist(history);
+    delete (this as any)._historyMeta;
   }
 }

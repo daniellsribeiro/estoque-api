@@ -32,4 +32,7 @@ export class ExpensePayment extends BaseAuditEntity {
 
   @Property({ nullable: true })
   observacoes?: string;
+
+  @Property({ columnType: 'numeric(12,2)', nullable: true })
+  valorCompra?: number;
 }

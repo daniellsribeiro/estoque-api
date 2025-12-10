@@ -33,6 +33,9 @@ export class Sale extends BaseAuditEntity {
   @Property({ columnType: 'numeric(12,2)' })
   totalVenda: number;
 
+  @Property({ columnType: 'numeric(12,2)', default: 0 })
+  valorLiquido: number = 0;
+
   @Property()
   status: string;
 

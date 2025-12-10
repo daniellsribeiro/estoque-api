@@ -17,6 +17,8 @@ import { Recebimento } from './entities/recebimento.entity';
 import { Sale } from '../vendas/entities/sale.entity';
 import { CreateRecebimentoDto } from './dto/create-recebimento.dto';
 import { UpdateRecebimentoDto } from './dto/update-recebimento.dto';
+import { CreateExpenseDto } from './dto/create-expense.dto';
+import { Supplier } from '../produtos/entities/supplier.entity';
 
 @Injectable()
 export class FinanceiroService {
@@ -31,12 +33,14 @@ export class FinanceiroService {
     private readonly cardInvoicePaymentRepo: EntityRepository<CardInvoicePayment>,
     @InjectRepository(PurchasePayment)
     private readonly purchasePaymentRepo: EntityRepository<PurchasePayment>,
+    @InjectRepository(Supplier)
+    private readonly supplierRepo: EntityRepository<Supplier>,
     @InjectRepository(Expense)
     private readonly expenseRepo: EntityRepository<Expense>,
     @InjectRepository(ExpenseItem)
     private readonly expenseItemRepo: EntityRepository<ExpenseItem>,
     @InjectRepository(ExpensePayment)
-    private readonly expensePaymentRepo: EntityRepository<ExpensePayment>,
+  private readonly expensePaymentRepo: EntityRepository<ExpensePayment>,
     @InjectRepository(Recebimento)
     private readonly recebimentoRepo: EntityRepository<Recebimento>,
     @InjectRepository(Sale)
@@ -384,5 +388,122 @@ export class FinanceiroService {
     await em.flush();
 
     return payment;
+  }
+
+  async listExpenses() {
+    return this.expenseRepo.findAll({ populate: ['tipoPagamento', 'cartaoConta', 'fornecedor'] });
+  }
+
+  async getExpense(id: string) {
+    const gasto = await this.expenseRepo.findOne(
+      { id },
+      { populate: ['tipoPagamento', 'cartaoConta', 'fornecedor', 'itens', 'pagamentos', 'pagamentos.cartaoConta'] },
+    );
+    if (!gasto) throw new NotFoundException('Gasto n\u00e3o encontrado');
+    return gasto;
+  }
+
+  async createExpense(dto: CreateExpenseDto, userId?: string) {
+    const tipoPagamento = await this.paymentTypeRepo.findOne({ id: dto.tipoPagamentoId });
+    if (!tipoPagamento) throw new NotFoundException('Tipo de pagamento n\u00e3o encontrado');
+
+    const fornecedor = dto.fornecedorId ? await this.supplierRepo.findOne({ id: dto.fornecedorId }) : undefined;
+    if (dto.fornecedorId && !fornecedor) {
+      throw new NotFoundException('Fornecedor n\u00e3o encontrado');
+    }
+
+    const cartao = dto.cartaoContaId ? await this.cardAccountRepo.findOne({ id: dto.cartaoContaId }) : undefined;
+    const desc = (tipoPagamento.descricao || '').toLowerCase();
+    const descNorm = desc.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const isCredito = desc.includes('cred') || descNorm.includes('credito');
+    const cardRequired = isCredito || desc.includes('pix') || descNorm.includes('debito');
+    if (cardRequired && !cartao) {
+      throw new NotFoundException('Cart\u00e3o/conta n\u00e3o encontrado para este pagamento');
+    }
+
+    const em = this.expenseRepo.getEntityManager();
+    const gasto = this.expenseRepo.create({
+      data: new Date(dto.data),
+      tipoPagamento,
+      cartaoConta: cardRequired ? cartao : undefined,
+      fornecedor,
+      parcelas: dto.parcelas ?? 1,
+      totalCompra: dto.totalCompra,
+      status: cardRequired && !isCredito ? 'pago' : 'pendente',
+      observacoes: dto.observacoes,
+      descricao: dto.descricao,
+      createdById: userId,
+      updatedById: userId,
+    });
+    em.persist(gasto);
+
+    dto.itens.forEach((it) => {
+      const item = this.expenseItemRepo.create({
+        gasto,
+        descricaoItem: it.descricao || 'Item',
+        qtde: it.qtde,
+        valorUnit: it.valorUnit,
+        valorTotal: it.qtde * it.valorUnit,
+        createdById: userId,
+        updatedById: userId,
+      });
+      em.persist(item);
+    });
+
+    const parcelas = isCredito ? dto.parcelas ?? 1 : 1;
+    const valorParcela = dto.totalCompra / parcelas;
+    const baseDate = new Date(dto.data);
+
+    const computeVencimento = (parcelaIndex: number) => {
+      if (!cartao || !cartao.diaVencimento) {
+        const venc = new Date(baseDate);
+        venc.setMonth(venc.getMonth() + parcelaIndex);
+        return venc;
+      }
+      const vencDia = cartao.diaVencimento;
+      const fechamento = cartao.diaFechamento ?? 0;
+      let ano = baseDate.getFullYear();
+      let mes = baseDate.getMonth();
+      const compraAposFechamento = baseDate.getDate() > fechamento;
+      if (compraAposFechamento) {
+        mes += 1;
+        if (mes > 11) {
+          mes = 0;
+          ano += 1;
+        }
+      }
+      mes += parcelaIndex;
+      while (mes > 11) {
+        mes -= 12;
+        ano += 1;
+      }
+      return new Date(ano, mes, vencDia);
+    };
+
+    for (let i = 0; i < parcelas; i++) {
+      const vencimento = cardRequired ? computeVencimento(i) : baseDate;
+      const statusPagamento = cardRequired ? 'pendente' : 'paga';
+      const pagamento = this.expensePaymentRepo.create({
+        gasto,
+        nParcela: i + 1,
+        dataVencimento: vencimento,
+        dataPagamento: statusPagamento === 'paga' ? baseDate : undefined,
+        valorParcela,
+        valorCompra: dto.totalCompra,
+        statusPagamento,
+        tipoPagamento,
+        cartaoConta: cardRequired ? cartao : undefined,
+        createdById: userId,
+        updatedById: userId,
+      });
+      em.persist(pagamento);
+    }
+
+    await em.flush();
+    return gasto;
+  }
+
+  async listExpensePayments() {
+    return this.expensePaymentRepo.findAll({ populate: ['gasto', 'cartaoConta', 'tipoPagamento'] });
   }
 }

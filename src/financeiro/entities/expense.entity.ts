@@ -10,6 +10,7 @@ import { Supplier } from '../../produtos/entities/supplier.entity';
 import { PaymentType } from './payment-type.entity';
 import { ExpenseItem } from './expense-item.entity';
 import { ExpensePayment } from './expense-payment.entity';
+import { CardAccount } from './card-account.entity';
 
 @Entity({ tableName: 'gastos' })
 export class Expense extends BaseAuditEntity {
@@ -22,11 +23,17 @@ export class Expense extends BaseAuditEntity {
   @ManyToOne(() => PaymentType)
   tipoPagamento: PaymentType;
 
+  @ManyToOne(() => CardAccount, { nullable: true })
+  cartaoConta?: CardAccount;
+
   @Property({ default: 1 })
   parcelas: number = 1;
 
-  @Property({ columnType: 'numeric(12,2)' })
-  totalGasto: number;
+  @Property({ columnType: 'numeric(12,2)', fieldName: 'total_compra' })
+  totalCompra: number;
+
+  @Property({ nullable: true })
+  descricao?: string;
 
   @Property()
   status: string;

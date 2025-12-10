@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { PurchasePayment } from '../compras/entities/purchase-payment.entity';
 import { FinanceiroController } from './financeiro.controller';
+import { GastosController } from './gastos.controller';
 import { FinanceiroService } from './financeiro.service';
 import { RecebimentosCron } from './recebimentos.cron';
 import { CardAccount } from './entities/card-account.entity';
@@ -13,6 +14,7 @@ import { PaymentType } from './entities/payment-type.entity';
 import { CardPaymentRule } from './entities/card-payment-rule.entity';
 import { Recebimento } from './entities/recebimento.entity';
 import { Sale } from '../vendas/entities/sale.entity';
+import { Supplier } from '../produtos/entities/supplier.entity';
 
 @Module({
   imports: [
@@ -27,9 +29,10 @@ import { Sale } from '../vendas/entities/sale.entity';
       PurchasePayment,
       Recebimento,
       Sale,
+      Supplier,
     ]),
   ],
-  controllers: [FinanceiroController],
+  controllers: [FinanceiroController, GastosController],
   providers: [FinanceiroService, RecebimentosCron],
   exports: [MikroOrmModule, FinanceiroService],
 })

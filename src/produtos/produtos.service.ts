@@ -193,6 +193,7 @@ export class ProdutosService {
     }
     const supplier = this.supplierRepo.create({
       ...dto,
+      principal: dto.principal ?? true,
       createdById: userId,
       updatedById: userId,
     });
@@ -220,6 +221,7 @@ export class ProdutosService {
     if (dto.telefone !== undefined) supplier.telefone = dto.telefone;
     if (dto.email !== undefined) supplier.email = dto.email;
     if (dto.observacoes !== undefined) supplier.observacoes = dto.observacoes;
+    if (dto.principal !== undefined) supplier.principal = dto.principal;
     supplier.updatedById = userId;
     await this.supplierRepo.getEntityManager().persistAndFlush(supplier);
     return supplier;

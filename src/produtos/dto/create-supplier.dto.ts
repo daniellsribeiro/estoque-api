@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateSupplierDto {
   @IsString()
@@ -21,4 +21,8 @@ export class CreateSupplierDto {
   @IsString()
   @IsOptional()
   observacoes?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  principal?: boolean;
 }

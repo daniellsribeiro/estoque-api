@@ -18,4 +18,7 @@ export class Supplier extends BaseAuditEntity {
 
   @Property({ nullable: true })
   observacoes?: string;
+
+  @Property({ type: Boolean, default: true })
+  principal: boolean = true;
 }

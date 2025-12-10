@@ -34,4 +34,8 @@ export class CreateRecebimentoDto {
   @IsOptional()
   @IsNumber()
   prazoRecebimentoDias?: number;
+
+  @IsOptional()
+  @IsDateString()
+  dataRecebimento?: string;
 }

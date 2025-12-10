@@ -19,7 +19,10 @@ export class RecebimentosCron {
   async atualizarRecebidosPorData() {
     const em = this.recebimentoRepo.getEntityManager().fork();
     const agora = new Date();
-    const pagos = await em.find(Recebimento, { status: 'previsto', dataRecebida: { $ne: null } });
+    const pagos = await em.find(Recebimento, {
+      status: 'pago' as any,
+      dataRecebida: { $ne: null },
+    });
     const vendasAfetadas = new Set<string>();
     pagos.forEach((r) => {
       if (!r.dataPrevista) return;
@@ -39,24 +42,24 @@ export class RecebimentosCron {
         const last = recs[0];
         if (!last) continue;
         let novoStatus = venda.status;
-        if (last.status === 'cancelado') {
-          novoStatus = 'cancelado';
-        } else if (last.status === 'recebido') {
+      if (last.status === 'cancelado') {
+        novoStatus = 'cancelado';
+      } else if (last.status === 'recebido') {
+        novoStatus = 'recebido';
+      } else if (last.status === 'pago') {
+        if (last.dataRecebida && last.dataPrevista && this.isDateReached(last.dataPrevista, agora)) {
+          last.status = 'recebido';
+          last.dataRecebida = last.dataRecebida ?? agora;
+          em.persist(last);
           novoStatus = 'recebido';
-        } else if (last.status === 'previsto') {
-          if (last.dataRecebida && last.dataPrevista && this.isDateReached(last.dataPrevista, agora)) {
-            last.status = 'recebido';
-            last.dataRecebida = last.dataRecebida ?? agora;
-            em.persist(last);
-            novoStatus = 'recebido';
-          } else if (last.dataRecebida) {
-            novoStatus = 'paga';
-          } else {
-            novoStatus = 'pendente';
-          }
+        } else if (last.dataRecebida) {
+          novoStatus = 'paga';
         } else {
           novoStatus = 'pendente';
         }
+      } else {
+        novoStatus = 'pendente';
+      }
         if (novoStatus !== venda.status) {
           venda.status = novoStatus;
           em.persist(venda);

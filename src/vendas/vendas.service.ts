@@ -89,7 +89,15 @@ export class VendasService {
       { populate: ['tipoPagamento', 'cartaoConta'], orderBy: { parcelaNumero: 'ASC' } },
     );
     const status = this.computeStatusFromRecebimentos(recebimentos, sale.status);
-    return { ...sale, status, recebimentos };
+    const recebimentosView = recebimentos.map((r) => {
+      const payload: any = { ...r };
+      if (!r.dataRecebida || !r.dataPrevista) {
+        delete payload.dataPrevista;
+      }
+      payload.dataRecebida = r.dataRecebida ?? null;
+      return payload;
+    });
+    return { ...sale, status, recebimentos: recebimentosView };
   }
 
   private isCredit(descricao: string) {
@@ -101,29 +109,33 @@ export class VendasService {
   private isImmediate(descricao: string) {
     const name = descricao.toLowerCase();
     const normalized = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    return name.includes('dinheiro'); // apenas dinheiro considera imediato; pix/debito ficam pendentes até marcar pago
+    return name.includes('dinheiro') || name.includes('pix') || normalized.includes('pix');
   }
 
   private computeStatusFromRecebimentos(recebs: Recebimento[], fallback: string) {
     if (!recebs || recebs.length === 0) return fallback;
-    const sorted = [...recebs].sort((a, b) => (b.parcelaNumero ?? 0) - (a.parcelaNumero ?? 0));
-    const last = sorted[0];
-    if (!last) return fallback;
-    if (last.status === 'cancelado') return 'cancelado';
-    const hoje = new Date();
-    const prevista = last.dataPrevista ? new Date(last.dataPrevista) : null;
-    if (last.status === 'recebido') {
-      if (prevista && !this.isDateReached(prevista, hoje)) return 'paga';
+    const statusDoRec = (r: Recebimento) => {
+      if (r.status === 'cancelado') return 'cancelado';
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
+      const prevista = r.dataPrevista ? new Date(r.dataPrevista) : null;
+      if (prevista) prevista.setHours(0, 0, 0, 0);
+      const recebida = r.dataRecebida ? new Date(r.dataRecebida) : null;
+      if (recebida) recebida.setHours(0, 0, 0, 0);
+
+      if (!recebida) return 'pendente';
+      if (prevista && hoje < prevista) return 'pago';
       return 'recebido';
-    }
-    if (last.status === 'previsto') {
-      if (last.dataRecebida) {
-        if (prevista && this.isDateReached(prevista, hoje)) return 'recebido';
-        return 'paga';
-      }
-      return 'pendente';
-    }
-    return 'pendente';
+    };
+
+    const sorted = [...recebs].sort((a, b) => (b.parcelaNumero ?? 0) - (a.parcelaNumero ?? 0));
+    const statuses = sorted.map(statusDoRec);
+    const allCancel = statuses.every((s) => s === 'cancelado');
+    if (allCancel) return 'cancelado';
+    const allRecebido = statuses.every((s) => s === 'recebido');
+    if (allRecebido) return 'recebido';
+    const lastStatus = statuses[0] ?? fallback;
+    return lastStatus === 'recebido' ? 'pago' : lastStatus;
   }
 
   private parseDateOnly(dateStr: string) {
@@ -144,7 +156,7 @@ export class VendasService {
 
   private normalizePagoParaRecebido(recs: Recebimento[], referencia: Date) {
     recs.forEach((r) => {
-      if (r.status === 'previsto' && r.dataRecebida && r.dataPrevista && this.isDateReached(r.dataPrevista, referencia)) {
+      if ((r.status === 'previsto' || r.status === 'pago') && r.dataRecebida && r.dataPrevista && this.isDateReached(r.dataPrevista, referencia)) {
         r.status = 'recebido';
         if (!r.dataRecebida) r.dataRecebida = referencia;
       }
@@ -175,9 +187,8 @@ export class VendasService {
       desc.includes('pix') ||
       descNorm.includes('debito');
     if (cardRequired && !dto.cartaoContaId) {
-      throw new BadRequestException('Selecione o cartÇœo/conta para esta forma de pagamento');
+      throw new BadRequestException('Selecione o cartão/conta para esta forma de pagamento');
     }
-
     const em = this.saleRepo.getEntityManager();
     const dataVenda = this.parseDateOnly(dto.data);
     const sale = this.saleRepo.create({
@@ -274,25 +285,45 @@ export class VendasService {
       valorTotal: totalVenda,
       usarEscalonadoPadrao: dto.usarEscalonadoPadrao,
       prazoRecebimentoDias: dto.prazoRecebimentoDias,
+      dataRecebimento: dto.pagoAgora ? (dto.dataPagamento ?? dto.data) : undefined,
     });
 
-    if (dto.pagoAgora) {
+    if (dto.pagoAgora && recebimentos.length) {
       const dataPag = dto.dataPagamento ? this.parseDateOnly(dto.dataPagamento) : dataVenda;
+      const normalizeDate = (d: Date) => {
+        const nd = new Date(d);
+        nd.setHours(0, 0, 0, 0);
+        return nd;
+      };
       const hojeRef = new Date();
-      recebimentos.forEach((rec) => {
-        if (isImmediatePayment || (rec.dataPrevista && this.isDateReached(rec.dataPrevista, hojeRef))) {
+      const dataPagNorm = normalizeDate(dataPag);
+      const offsets =
+        await this.financeiroService.computeOffsetsPreview({
+          parcelas: dto.parcelas ?? 1,
+          tipoPagamentoId: dto.tipoPagamentoId,
+          cartaoContaId: dto.cartaoContaId,
+          regraId: dto.regraId,
+          usarEscalonadoPadrao: dto.usarEscalonadoPadrao,
+          prazoRecebimentoDias: dto.prazoRecebimentoDias,
+        });
+
+      recebimentos.forEach((rec, idx) => {
+        const offset = offsets[idx] ?? offsets[0] ?? 0;
+        const previstaFinal = normalizeDate(new Date(dataPagNorm.getTime()));
+        previstaFinal.setDate(previstaFinal.getDate() + offset);
+
+        rec.dataPrevista = previstaFinal;
+        rec.dataRecebida = dataPagNorm;
+        if (isImmediatePayment || this.isDateReached(previstaFinal, hojeRef)) {
           rec.status = 'recebido';
-          rec.dataRecebida = dataPag;
-          rec.dataPrevista = rec.dataPrevista ?? dataPag;
         } else {
-          rec.status = 'previsto';
-          rec.dataRecebida = dataPag;
+          rec.status = 'pago';
         }
         rec.updatedById = userId;
         em.persist(rec);
       });
       await em.flush();
-      this.normalizePagoParaRecebido(recebimentos, dataPag);
+      this.normalizePagoParaRecebido(recebimentos, dataPagNorm);
       await em.flush();
       sale.status = this.computeStatusFromRecebimentos(recebimentos, sale.status);
       await em.flush();
@@ -302,27 +333,74 @@ export class VendasService {
   }
 
   async markSalePaid(id: string, dto: MarkSalePaidDto, userId?: string) {
-    const sale = await this.saleRepo.findOne({ id }, { populate: ['itens', 'itens.item'] });
-    if (!sale) throw new NotFoundException('Venda não encontrada');
-    const recebimentos = await this.recebimentoRepo.find({ venda: sale });
-    const dataPag = dto.dataPagamento ? new Date(dto.dataPagamento) : new Date();
+    const sale = await this.saleRepo.findOne(
+      { id },
+      { populate: ['itens', 'itens.item', 'tipoPagamento'] },
+    );
+    if (!sale) throw new NotFoundException('Venda não encontrada');
+    const recebimentos = await this.recebimentoRepo.find({ venda: sale }, { populate: ['cartaoConta', 'tipoPagamento'] });
+    const dataPagBase = dto.dataPagamento ? this.parseDateOnly(dto.dataPagamento) : new Date();
+    const dataPag = this.parseDateOnly(dataPagBase.toISOString().slice(0, 10));
+    const dataVenda = sale.data ? this.parseDateOnly(sale.data.toISOString().slice(0, 10)) : null;
+    if (dataVenda && dataPag < dataVenda) {
+      throw new BadRequestException('Data de pagamento não pode ser anterior à data da venda');
+    }
+    const normalizeDate = (d: Date) => {
+      const nd = new Date(d);
+      nd.setHours(0, 0, 0, 0);
+      return nd;
+    };
     const hojeRef = new Date();
-    recebimentos.forEach((r) => {
-      if (r.dataPrevista && !this.isDateReached(r.dataPrevista, hojeRef)) {
-        r.status = 'previsto';
-        r.dataRecebida = dataPag;
-      } else {
+    const dataPagNorm = normalizeDate(dataPag);
+    const tipoDesc = sale.tipoPagamento?.descricao?.toLowerCase() ?? '';
+    const isPix = tipoDesc.includes('pix');
+    let recebimentosAlvo = recebimentos;
+    if (isPix && recebimentosAlvo.length === 0) {
+      recebimentosAlvo = await this.financeiroService.createRecebimentos({
+        vendaId: sale.id,
+        tipoPagamentoId: sale.tipoPagamento.id,
+        cartaoContaId: undefined,
+        regraId: undefined,
+        dataVenda: dataPagNorm.toISOString().slice(0, 10),
+        parcelas: sale.parcelas,
+        valorTotal: sale.totalVenda,
+        usarEscalonadoPadrao: false,
+        prazoRecebimentoDias: 0,
+        dataRecebimento: dataPagNorm.toISOString().slice(0, 10),
+      });
+    }
+
+    const firstRec = recebimentosAlvo[0];
+    const offsets = await this.financeiroService.computeOffsetsPreview({
+      parcelas: sale.parcelas ?? 1,
+      tipoPagamentoId: sale.tipoPagamento?.id,
+      cartaoContaId: (firstRec as any)?.cartaoConta?.id,
+      regraId: undefined,
+      usarEscalonadoPadrao: undefined,
+      prazoRecebimentoDias: undefined,
+    });
+
+    recebimentosAlvo.forEach((r, idx) => {
+      const offset = offsets[idx] ?? offsets[0] ?? 0;
+      const previstaAlvo = normalizeDate(new Date(dataPagNorm.getTime()));
+      previstaAlvo.setDate(previstaAlvo.getDate() + offset);
+
+      if (this.isDateReached(previstaAlvo, hojeRef) || isPix) {
         r.status = 'recebido';
-        r.dataRecebida = dataPag;
-        if (!r.dataPrevista) r.dataPrevista = dataPag;
+      } else {
+        r.status = 'pago';
       }
+      r.dataPrevista = previstaAlvo;
+      r.dataRecebida = dataPagNorm;
       r.updatedById = userId;
       this.recebimentoRepo.getEntityManager().persist(r);
     });
-    this.normalizePagoParaRecebido(recebimentos, dataPag);
-    sale.status = this.computeStatusFromRecebimentos(recebimentos, sale.status);
+    this.normalizePagoParaRecebido(recebimentosAlvo, hojeRef);
+    sale.status = isPix ? 'recebido' : this.computeStatusFromRecebimentos(recebimentosAlvo, sale.status);
     sale.updatedById = userId;
-    await this.saleRepo.getEntityManager().persistAndFlush(sale);
+    const em = this.saleRepo.getEntityManager();
+    await em.persistAndFlush(sale);
+    await this.recebimentoRepo.getEntityManager().flush();
     return this.getSale(id);
   }
 
@@ -423,25 +501,40 @@ async cancelSale(id: string, userId?: string) {
       valorTotal: sale.totalVenda,
       usarEscalonadoPadrao: dto.usarEscalonadoPadrao,
       prazoRecebimentoDias: dto.prazoRecebimentoDias,
+      dataRecebimento: dto.pagoAgora ? (dto.dataPagamento ?? sale.data.toISOString().slice(0, 10)) : undefined,
     });
 
     if (dto.pagoAgora) {
       const dataPag = dto.dataPagamento ? this.parseDateOnly(dto.dataPagamento) : new Date();
+      const normalizeDate = (d: Date) => {
+        const nd = new Date(d);
+        nd.setHours(0, 0, 0, 0);
+        return nd;
+      };
       const hojeRef = new Date();
+      const dataPagNorm = normalizeDate(dataPag);
+      const offsets = await this.financeiroService.computeOffsetsPreview({
+        parcelas: dto.parcelas ?? 1,
+        tipoPagamentoId: dto.tipoPagamentoId,
+        cartaoContaId: dto.cartaoContaId,
+        regraId: dto.regraId,
+        usarEscalonadoPadrao: dto.usarEscalonadoPadrao,
+        prazoRecebimentoDias: dto.prazoRecebimentoDias,
+      });
       recebimentosNovos.forEach((rec) => {
-        if (isImmediatePayment || (rec.dataPrevista && this.isDateReached(rec.dataPrevista, hojeRef))) {
-          rec.status = 'recebido';
-          rec.dataRecebida = dataPag;
-          if (!rec.dataPrevista) rec.dataPrevista = dataPag;
-        } else {
-          rec.status = 'previsto';
-          rec.dataRecebida = dataPag;
-        }
+        const idx = (rec.parcelaNumero ?? 1) - 1;
+        const offset = offsets[idx] ?? offsets[0] ?? 0;
+        const previstaFinal = normalizeDate(new Date(dataPagNorm.getTime()));
+        previstaFinal.setDate(previstaFinal.getDate() + offset);
+
+        rec.dataPrevista = previstaFinal;
+        rec.dataRecebida = dataPagNorm;
+        rec.status = isImmediatePayment || this.isDateReached(previstaFinal, hojeRef) ? 'recebido' : 'pago';
         rec.updatedById = userId;
         this.recebimentoRepo.getEntityManager().persist(rec);
       });
       await this.recebimentoRepo.getEntityManager().flush();
-      this.normalizePagoParaRecebido(recebimentosNovos, dataPag);
+      this.normalizePagoParaRecebido(recebimentosNovos, hojeRef);
       await this.recebimentoRepo.getEntityManager().flush();
       sale.status = this.computeStatusFromRecebimentos(recebimentosNovos, sale.status);
       await this.saleRepo.getEntityManager().persistAndFlush(sale);

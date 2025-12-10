@@ -147,10 +147,11 @@ export class FinanceiroService {
   async createRecebimentos(dto: CreateRecebimentoDto, userId?: string) {
     const em = this.recebimentoRepo.getEntityManager();
     const parcelas = dto.parcelas ?? 1;
-    const dataVenda = this.parseDateOnly(dto.dataVenda);
     const sale = dto.vendaId ? await this.saleRepo.findOne({ id: dto.vendaId }) : undefined;
     const card = dto.cartaoContaId ? await this.cardAccountRepo.findOne({ id: dto.cartaoContaId }) : undefined;
     const tipoPag = dto.tipoPagamentoId ? await this.paymentTypeRepo.findOne({ id: dto.tipoPagamentoId }) : undefined;
+    const dataVenda = this.parseDateOnly(dto.dataVenda);
+    const dataRecebimento = dto.dataRecebimento ? this.parseDateOnly(dto.dataRecebimento) : undefined;
 
     const normalize = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     const parseRange = (tipo: string) => {
@@ -161,30 +162,16 @@ export class FinanceiroService {
       return null;
     };
 
-    let rule = dto.regraId ? await this.cardRuleRepo.findOne({ id: dto.regraId }) : undefined;
-    if (!rule && card) {
-      const tipoNorm = tipoPag ? normalize(tipoPag.descricao || '') : '';
-      const regras = await this.cardRuleRepo.find({ cartao: card });
-      const compat = regras.filter((r) => {
-        const tNorm = normalize(r.tipo || '');
-        if (tipoNorm.includes('cred')) return tNorm.includes('cred');
-        if (tipoNorm.includes('deb')) return tNorm.includes('deb');
-        if (tipoNorm.includes('pix')) return tNorm.includes('pix');
-        return true;
-      });
-      const lista = compat.length ? compat : regras;
-      const exact = lista.find((r) => {
-        const range = parseRange(r.tipo || '');
-        if (!range) return false;
-        return parcelas >= range.min && parcelas <= range.max;
-      });
-      rule = exact ?? lista[0];
-    }
-
-    const useEscalonado = dto.usarEscalonadoPadrao ?? rule?.prazoEscalonadoPadrao ?? false;
-    const efetivas = useEscalonado ? parcelas : 1;
-    const offsets = this.buildOffsets(efetivas, rule ?? undefined, useEscalonado, dto.prazoRecebimentoDias);
-    const valorParcela = useEscalonado ? Number(dto.valorTotal) / parcelas : Number(dto.valorTotal);
+    const { offsets, rule } = await this.resolveRuleAndOffsets({
+      parcelas,
+      card: card ?? undefined,
+      tipoPag: tipoPag ?? undefined,
+      regraId: dto.regraId,
+      usarEscalonadoPadrao: dto.usarEscalonadoPadrao,
+      prazoRecebimentoDias: dto.prazoRecebimentoDias,
+    });
+    const efetivas = offsets.length || parcelas;
+    const valorParcela = Number(dto.valorTotal) / efetivas;
 
     const recebimentos: Recebimento[] = [];
     for (let i = 0; i < efetivas; i++) {
@@ -194,14 +181,17 @@ export class FinanceiroService {
       const valorTaxa = taxaValorPerc + taxaFixa;
       const valorLiquido = valorParcela - valorTaxa;
       const offset = offsets[i] ?? 0;
-      const dataPrevista = new Date(dataVenda);
-      dataPrevista.setDate(dataPrevista.getDate() + offset);
+      let dataPrevista: Date | null = null;
+      if (dataRecebimento) {
+        dataPrevista = new Date(dataRecebimento);
+        dataPrevista.setDate(dataPrevista.getDate() + offset);
+      }
 
       const rec = this.recebimentoRepo.create({
         venda: sale,
         tipoPagamento: tipoPag,
         cartaoConta: card,
-        parcelaNumero: useEscalonado ? i + 1 : 1,
+        parcelaNumero: i + 1,
         valorBruto: valorParcela,
         valorTaxa,
         valorLiquido,
@@ -217,6 +207,85 @@ export class FinanceiroService {
     return recebimentos;
   }
 
+  async computeOffsetsPreview(params: {
+    parcelas: number;
+    tipoPagamentoId?: string;
+    cartaoContaId?: string;
+    regraId?: string;
+    usarEscalonadoPadrao?: boolean;
+    prazoRecebimentoDias?: number;
+  }): Promise<number[]> {
+    const card = params.cartaoContaId ? await this.cardAccountRepo.findOne({ id: params.cartaoContaId }) : undefined;
+    const tipoPag = params.tipoPagamentoId ? await this.paymentTypeRepo.findOne({ id: params.tipoPagamentoId }) : undefined;
+    const { offsets } = await this.resolveRuleAndOffsets({
+      parcelas: params.parcelas,
+      card: card ?? undefined,
+      tipoPag: tipoPag ?? undefined,
+      regraId: params.regraId,
+      usarEscalonadoPadrao: params.usarEscalonadoPadrao,
+      prazoRecebimentoDias: params.prazoRecebimentoDias,
+    });
+    return offsets;
+  }
+
+  private async resolveRuleAndOffsets(params: {
+    parcelas: number;
+    card?: CardAccount;
+    tipoPag?: PaymentType;
+    regraId?: string;
+    usarEscalonadoPadrao?: boolean;
+    prazoRecebimentoDias?: number;
+  }): Promise<{ offsets: number[]; rule?: CardPaymentRule; useEscalonado: boolean }> {
+    const { parcelas, card, tipoPag } = params;
+    const normalize = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const parseRange = (tipo: string) => {
+      const nums = (tipo.match(/\d+/g) || []).map((n) => Number(n)).filter((n) => !Number.isNaN(n));
+      if (nums.length === 1) return { min: nums[0], max: nums[0] };
+      if (nums.length >= 2) return { min: Math.min(nums[0], nums[1]), max: Math.max(nums[0], nums[1]) };
+      if (normalize(tipo).includes('vista') || normalize(tipo).includes('av')) return { min: 1, max: 1 };
+      return null;
+    };
+
+    const tipoNorm = tipoPag ? normalize(tipoPag.descricao || '') : '';
+    const isPix = tipoNorm.includes('pix');
+    const isDeb = tipoNorm.includes('deb');
+    const isCred = tipoNorm.includes('cred');
+
+    let rule = params.regraId ? await this.cardRuleRepo.findOne({ id: params.regraId }) : undefined;
+    if (!rule && card) {
+      const regras = await this.cardRuleRepo.find({ cartao: card });
+      const compat = regras.filter((r) => {
+        const tNorm = normalize(r.tipo || '');
+        if (isCred) return tNorm.includes('cred');
+        if (isDeb) return tNorm.includes('deb');
+        if (isPix) return tNorm.includes('pix');
+        return true;
+      });
+      const fallbackSameType = regras.filter((r) => {
+        const tNorm = normalize(r.tipo || '');
+        if (isCred) return tNorm.includes('cred');
+        if (isDeb) return tNorm.includes('deb');
+        if (isPix) return tNorm.includes('pix');
+        return false;
+      });
+      const lista = compat.length ? compat : fallbackSameType;
+      const exact = lista.find((r) => {
+        const range = parseRange(r.tipo || '');
+        if (!range) return false;
+        return parcelas >= range.min && parcelas <= range.max;
+      });
+      rule = exact ?? lista[0];
+    }
+
+    const useEscalonado = params.usarEscalonadoPadrao ?? rule?.prazoEscalonadoPadrao ?? false;
+    const efetivas = parcelas;
+    const offsets = isPix
+      ? Array(efetivas).fill(0)
+      : this.buildOffsets(efetivas, rule ?? undefined, useEscalonado, params.prazoRecebimentoDias);
+
+    return { offsets, rule: rule ?? undefined, useEscalonado };
+  }
+
   private parseDateOnly(dateStr: string) {
     const parsed = new Date(`${dateStr}T00:00:00`);
     if (Number.isNaN(parsed.getTime())) {
@@ -226,7 +295,8 @@ export class FinanceiroService {
   }
 
   async listRecebimentos() {
-    return this.recebimentoRepo.findAll();
+    const recs = await this.recebimentoRepo.findAll();
+    return recs.map((r) => this.serializeRecebimento(r));
   }
 
   async updateRecebimento(id: string, dto: UpdateRecebimentoDto, userId?: string) {
@@ -242,7 +312,7 @@ export class FinanceiroService {
     }
     rec.updatedById = userId;
     await this.recebimentoRepo.getEntityManager().persistAndFlush(rec);
-    return rec;
+    return this.serializeRecebimento(rec);
   }
 
   async caixaResumo() {
@@ -260,6 +330,14 @@ export class FinanceiroService {
       quantidadePrevista: all.filter((r) => r.status === 'previsto').length,
       quantidadeRecebida: all.filter((r) => r.status === 'recebido').length,
     };
+  }
+
+  private serializeRecebimento(rec: Recebimento) {
+    const payload: any = { ...rec };
+    if (!rec.dataRecebida || !rec.dataPrevista) {
+      delete payload.dataPrevista;
+    }
+    return payload;
   }
 
   private getMonthRange(monthReference: string) {

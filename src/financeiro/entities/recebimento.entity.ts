@@ -28,11 +28,11 @@ export class Recebimento extends BaseAuditEntity {
   valorLiquido: number;
 
   @Property({ type: Date, nullable: true })
-  dataPrevista?: Date;
+  dataPrevista?: Date | null;
 
   @Property({ type: Date, nullable: true })
-  dataRecebida?: Date;
+  dataRecebida?: Date | null;
 
   @Property({ default: 'previsto' })
-  status: 'previsto' | 'recebido' | 'cancelado' = 'previsto';
+  status: 'previsto' | 'pago' | 'recebido' | 'cancelado' = 'previsto';
 }

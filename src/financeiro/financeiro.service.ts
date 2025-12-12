@@ -383,6 +383,18 @@ export class FinanceiroService {
       this.purchasePaymentRepo.getEntityManager().persist(parcela);
     });
 
+    const gastosParcelas = await this.expensePaymentRepo.find({
+      cartaoConta: card,
+      dataVencimento: { $gte: start, $lte: end },
+    });
+
+    gastosParcelas.forEach((parcela) => {
+      parcela.statusPagamento = 'paga';
+      parcela.dataPagamento = payment.dataPagamentoReal;
+      parcela.updatedById = userId;
+      this.expensePaymentRepo.getEntityManager().persist(parcela);
+    });
+
     const em = this.cardInvoicePaymentRepo.getEntityManager();
     em.persist(payment);
     await em.flush();

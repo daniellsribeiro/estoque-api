@@ -36,8 +36,38 @@ export class ComprasService {
     private readonly cardAccountRepo: EntityRepository<CardAccount>,
   ) {}
 
-  async listPurchases() {
-    return this.purchaseRepo.findAll({ populate: ["fornecedor", "tipoPagamento", "pagamentos"] });
+  private parseDate(value?: string) {
+    if (!value) return undefined;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return undefined;
+    return d;
+  }
+
+  async listPurchases(filters: {
+    dataInicio?: string;
+    dataFim?: string;
+    fornecedorId?: string;
+    tipoPagamentoId?: string;
+    tipoPagamento?: string;
+    status?: string;
+  } = {}) {
+    const qb = this.purchaseRepo
+      .createQueryBuilder("c")
+      .leftJoinAndSelect("c.fornecedor", "f")
+      .leftJoinAndSelect("c.tipoPagamento", "tp")
+      .leftJoinAndSelect("c.cartaoConta", "cc");
+
+    const ini = this.parseDate(filters.dataInicio);
+    const fim = this.parseDate(filters.dataFim);
+    if (ini) qb.andWhere("c.data >= ?", [ini]);
+    if (fim) qb.andWhere("c.data <= ?", [fim]);
+    if (filters.fornecedorId) qb.andWhere("f.id = ?", [filters.fornecedorId]);
+    const tipoId = filters.tipoPagamentoId || filters.tipoPagamento;
+    if (tipoId) qb.andWhere("tp.id = ?", [tipoId]);
+    if (filters.status) qb.andWhere("lower(c.status) = ?", [filters.status.toLowerCase()]);
+
+    qb.orderBy({ "c.data": "DESC", "c.createdAt": "DESC" });
+    return qb.getResultList();
   }
 
   async getPurchase(id: string) {
@@ -193,8 +223,35 @@ export class ComprasService {
     return compra;
   }
 
-  async listPayments() {
-    return this.purchasePaymentRepo.findAll({ populate: ["compra", "tipoPagamento", "cartaoConta"] });
+  async listPayments(filters: {
+    dataInicio?: string;
+    dataFim?: string;
+    fornecedorId?: string;
+    tipoPagamentoId?: string;
+    tipoPagamento?: string;
+    status?: string;
+    compraId?: string;
+  } = {}) {
+    const qb = this.purchasePaymentRepo
+      .createQueryBuilder("p")
+      .leftJoinAndSelect("p.compra", "c")
+      .leftJoinAndSelect("p.tipoPagamento", "tp")
+      .leftJoinAndSelect("p.cartaoConta", "cc")
+      .leftJoinAndSelect("c.fornecedor", "f")
+      .leftJoinAndSelect("c.tipoPagamento", "ctp");
+
+    if (filters.compraId) qb.andWhere("c.id = ?", [filters.compraId]);
+    const ini = this.parseDate(filters.dataInicio);
+    const fim = this.parseDate(filters.dataFim);
+    if (ini) qb.andWhere("c.data >= ?", [ini]);
+    if (fim) qb.andWhere("c.data <= ?", [fim]);
+    if (filters.fornecedorId) qb.andWhere("f.id = ?", [filters.fornecedorId]);
+    const tipoId = filters.tipoPagamentoId || filters.tipoPagamento;
+    if (tipoId) qb.andWhere("ctp.id = ?", [tipoId]);
+    if (filters.status) qb.andWhere("lower(c.status) = ?", [filters.status.toLowerCase()]);
+
+    qb.orderBy({ "c.data": "DESC", "p.nParcela": "ASC" });
+    return qb.getResultList();
   }
 
   async updatePaymentStatus(id: string, dto: UpdatePurchasePaymentDto, userId?: string) {

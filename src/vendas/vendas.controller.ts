@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards, Query } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { UpdateSalePaymentDto } from './dto/update-sale-payment.dto';
 import { MarkSalePaidDto } from './dto/mark-sale-paid.dto';
 import { VendasService } from './vendas.service';
+import { SaleFilterDto } from './dto/sale-filter.dto';
 
 @Controller('vendas')
 @UseGuards(JwtAuthGuard)
@@ -12,8 +13,8 @@ export class VendasController {
   constructor(private readonly vendasService: VendasService) {}
 
   @Get()
-  listSales(): Promise<any> {
-    return this.vendasService.listSales();
+  listSales(@Query() query: SaleFilterDto): Promise<any> {
+    return this.vendasService.listSales(query);
   }
 
   @Get(':id')

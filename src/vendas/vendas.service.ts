@@ -42,11 +42,38 @@ export class VendasService {
     return recebs.reduce((sum, r) => sum + Number(r.valorLiquido ?? r.valorBruto ?? 0), 0);
   }
 
-  async listSales(): Promise<any[]> {
-    const sales = await this.saleRepo.findAll({
-      populate: ['cliente', 'tipoPagamento'],
-      orderBy: { data: 'DESC' },
-    });
+  private parseDate(value?: string) {
+    if (!value) return undefined;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return undefined;
+    return d;
+  }
+
+  async listSales(filters: {
+    dataInicio?: string;
+    dataFim?: string;
+    clienteNome?: string;
+    tipoPagamentoId?: string;
+    tipoPagamento?: string;
+    status?: string;
+  } = {}): Promise<any[]> {
+    const qb = this.saleRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.cliente', 'c')
+      .leftJoinAndSelect('s.tipoPagamento', 'tp');
+
+    const ini = this.parseDate(filters.dataInicio);
+    const fim = this.parseDate(filters.dataFim);
+    if (ini) qb.andWhere('s.data >= ?', [ini]);
+    if (fim) qb.andWhere('s.data <= ?', [fim]);
+    if (filters.clienteNome) qb.andWhere('lower(c.nome) like ?', [`%${filters.clienteNome.toLowerCase()}%`]);
+    const tipoId = filters.tipoPagamentoId || filters.tipoPagamento;
+    if (tipoId) qb.andWhere('tp.id = ?', [tipoId]);
+    if (filters.status) qb.andWhere('lower(s.status) = ?', [filters.status.toLowerCase()]);
+
+    qb.orderBy({ 's.data': 'DESC', 's.createdAt': 'DESC' });
+
+    const sales = await qb.getResultList();
     const ids = sales.map((s) => s.id);
     if (ids.length === 0) return sales;
     const recs = await this.recebimentoRepo.find(

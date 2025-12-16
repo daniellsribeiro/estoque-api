@@ -353,6 +353,13 @@ export class FinanceiroService {
     return { start, end };
   }
 
+  private parseDate(value?: string) {
+    if (!value) return undefined;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return undefined;
+    return d;
+  }
+
   async registerCardInvoicePayment(
     dto: CreateCardInvoicePaymentDto,
     userId?: string,
@@ -402,8 +409,35 @@ export class FinanceiroService {
     return payment;
   }
 
-  async listExpenses() {
-    return this.expenseRepo.findAll({ populate: ['tipoPagamento', 'cartaoConta', 'fornecedor'] });
+  async listExpenses(filters: {
+    descricao?: string;
+    dataInicio?: string;
+    dataFim?: string;
+    fornecedorId?: string;
+    tipoPagamentoId?: string;
+    tipoPagamento?: string;
+    status?: string;
+  } = {}) {
+    const qb = this.expenseRepo
+      .createQueryBuilder('g')
+      .leftJoinAndSelect('g.tipoPagamento', 'tp')
+      .leftJoinAndSelect('g.cartaoConta', 'cc')
+      .leftJoinAndSelect('g.fornecedor', 'f');
+
+    if (filters.descricao) {
+      qb.andWhere('lower(g.descricao) like ?', [`%${filters.descricao.toLowerCase()}%`]);
+    }
+    const ini = this.parseDate(filters.dataInicio);
+    const fim = this.parseDate(filters.dataFim);
+    if (ini) qb.andWhere('g.data >= ?', [ini]);
+    if (fim) qb.andWhere('g.data <= ?', [fim]);
+    if (filters.fornecedorId) qb.andWhere('f.id = ?', [filters.fornecedorId]);
+    const tipoId = filters.tipoPagamentoId || filters.tipoPagamento;
+    if (tipoId) qb.andWhere('tp.id = ?', [tipoId]);
+    if (filters.status) qb.andWhere('lower(g.status) = ?', [filters.status.toLowerCase()]);
+
+    qb.orderBy({ 'g.data': 'DESC', 'g.createdAt': 'DESC' });
+    return qb.getResultList();
   }
 
   async getExpense(id: string) {
@@ -515,7 +549,36 @@ export class FinanceiroService {
     return gasto;
   }
 
-  async listExpensePayments() {
-    return this.expensePaymentRepo.findAll({ populate: ['gasto', 'cartaoConta', 'tipoPagamento'] });
+  async listExpensePayments(filters: {
+    descricao?: string;
+    dataInicio?: string;
+    dataFim?: string;
+    fornecedorId?: string;
+    tipoPagamentoId?: string;
+    tipoPagamento?: string;
+    status?: string;
+    gastoId?: string;
+  } = {}) {
+    const qb = this.expensePaymentRepo
+      .createQueryBuilder('p')
+      .leftJoinAndSelect('p.gasto', 'g')
+      .leftJoinAndSelect('p.cartaoConta', 'cc')
+      .leftJoinAndSelect('p.tipoPagamento', 'pt')
+      .leftJoinAndSelect('g.fornecedor', 'f')
+      .leftJoinAndSelect('g.tipoPagamento', 'gtp');
+
+    if (filters.gastoId) qb.andWhere('g.id = ?', [filters.gastoId]);
+    if (filters.descricao) qb.andWhere('lower(g.descricao) like ?', [`%${filters.descricao.toLowerCase()}%`]);
+    const ini = this.parseDate(filters.dataInicio);
+    const fim = this.parseDate(filters.dataFim);
+    if (ini) qb.andWhere('g.data >= ?', [ini]);
+    if (fim) qb.andWhere('g.data <= ?', [fim]);
+    if (filters.fornecedorId) qb.andWhere('f.id = ?', [filters.fornecedorId]);
+    const tipoId = filters.tipoPagamentoId || filters.tipoPagamento;
+    if (tipoId) qb.andWhere('gtp.id = ?', [tipoId]);
+    if (filters.status) qb.andWhere('lower(g.status) = ?', [filters.status.toLowerCase()]);
+
+    qb.orderBy({ 'g.data': 'DESC', 'p.nParcela': 'ASC' });
+    return qb.getResultList();
   }
 }

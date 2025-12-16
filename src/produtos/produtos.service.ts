@@ -12,6 +12,7 @@ import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductPriceDto } from './dto/update-product-price.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
+import { ProductFilterDto } from './dto/product-filter.dto';
 import { Customer } from './entities/customer.entity';
 import { ProductColor } from './entities/product-color.entity';
 import { ProductMaterial } from './entities/product-material.entity';
@@ -61,6 +62,13 @@ export class ProdutosService {
   ) {}
 
   async createType(dto: CreateProductTypeDto, userId?: string) {
+    const nameExists = await this.typeRepo
+      .createQueryBuilder('t')
+      .where('lower(t.nome) = lower(?)', [dto.nome])
+      .getSingleResult();
+    if (nameExists) {
+      throw new BadRequestException('Nome de tipo j? existe');
+    }
     const existing = await this.typeRepo.findOne({ codigo: dto.codigo });
     if (existing) {
       throw new BadRequestException('CÃ³digo de tipo jÃ¡ existe');
@@ -75,6 +83,13 @@ export class ProdutosService {
   }
 
   async createColor(dto: CreateProductColorDto, userId?: string) {
+    const nameExists = await this.colorRepo
+      .createQueryBuilder('c')
+      .where('lower(c.nome) = lower(?)', [dto.nome])
+      .getSingleResult();
+    if (nameExists) {
+      throw new BadRequestException('Nome de cor j? existe');
+    }
     const exists = await this.colorRepo.findOne({ codigo: dto.codigo });
     if (exists) {
       throw new BadRequestException('CÃ³digo de cor jÃ¡ existe');
@@ -89,6 +104,13 @@ export class ProdutosService {
   }
 
   async createMaterial(dto: CreateProductMaterialDto, userId?: string) {
+    const nameExists = await this.materialRepo
+      .createQueryBuilder('m')
+      .where('lower(m.nome) = lower(?)', [dto.nome])
+      .getSingleResult();
+    if (nameExists) {
+      throw new BadRequestException('Nome de material j? existe');
+    }
     const exists = await this.materialRepo.findOne({ codigo: dto.codigo });
     if (exists) {
       throw new BadRequestException('CÃ³digo de material jÃ¡ existe');
@@ -103,6 +125,13 @@ export class ProdutosService {
   }
 
   async createSize(dto: CreateProductSizeDto, userId?: string) {
+    const nameExists = await this.sizeRepo
+      .createQueryBuilder('s')
+      .where('lower(s.nome) = lower(?)', [dto.nome])
+      .getSingleResult();
+    if (nameExists) {
+      throw new BadRequestException('Nome de tamanho j? existe');
+    }
     const codigo = dto.codigo.padStart(3, '0');
     const exists = await this.sizeRepo.findOne({ codigo });
     if (exists) {
@@ -274,12 +303,28 @@ export class ProdutosService {
   async createProduct(dto: CreateProductDto, userId?: string) {
     const tipo = await this.typeRepo.findOne({ id: dto.tipoProdutoId });
     if (!tipo) {
-      throw new NotFoundException('Tipo de produto nÃ£o encontrado');
+      throw new NotFoundException('Tipo de produto n?o encontrado');
     }
 
     const cor = dto.corId ? await this.colorRepo.findOne({ id: dto.corId }) : undefined;
     const material = dto.materialId ? await this.materialRepo.findOne({ id: dto.materialId }) : undefined;
     const tamanho = dto.tamanhoId ? await this.sizeRepo.findOne({ id: dto.tamanhoId }) : undefined;
+
+    const dupQuery = this.productRepo
+      .createQueryBuilder('p')
+      .where('lower(p.nome) = lower(?)', [dto.nome])
+      .andWhere('p.tipo_id = ?', [tipo.id]);
+    if (cor) dupQuery.andWhere('p.cor_id = ?', [cor.id]);
+    else dupQuery.andWhere('p.cor_id is null');
+    if (material) dupQuery.andWhere('p.material_id = ?', [material.id]);
+    else dupQuery.andWhere('p.material_id is null');
+    if (tamanho) dupQuery.andWhere('p.tamanho_id = ?', [tamanho.id]);
+    else dupQuery.andWhere('p.tamanho_id is null');
+
+    const duplicatedByNameAndAttrs = await dupQuery.getSingleResult();
+    if (duplicatedByNameAndAttrs) {
+      throw new BadRequestException('Já existe um produto com este nome para este tipo/atributos');
+    }
 
     const codigo = await this.generateProductCode(tipo);
 
@@ -333,19 +378,71 @@ export class ProdutosService {
     return produto;
   }
 
-  async listProducts() {
-    return this.productRepo.findAll({
+  async listProducts(filters: ProductFilterDto = {}) {
+    const page = Math.max(1, Number(filters.page) || 1);
+    const limit = Math.max(1, Math.min(Number(filters.limit) || 20, 1000));
+    const offset = (page - 1) * limit;
+
+    const where: any = {};
+    const search = filters.search?.trim();
+    if (search) {
+      where.$or = [
+        { nome: { $ilike: `%${search}%` } },
+        { codigo: { $ilike: `%${search}%` } },
+        { observacao: { $ilike: `%${search}%` } },
+      ];
+    }
+    if (filters.tipo) where.tipo = filters.tipo;
+    if (filters.cor) where.cor = filters.cor;
+    if (filters.material) where.material = filters.material;
+    if (filters.tamanho) where.tamanho = filters.tamanho;
+
+    const [items, total] = await this.productRepo.findAndCount(where, {
       populate: ['tipo', 'cor', 'material', 'tamanho', 'preco', 'estoque'],
+      orderBy: { createdAt: 'DESC' },
+      limit,
+      offset,
     });
+
+    return { items, total, page, perPage: limit };
   }
 
-  async listEstoque() {
-    const produtos = await this.productRepo.findAll({
-      populate: ['tipo', 'cor', 'material', 'tamanho', 'estoque'],
-      orderBy: { nome: 'asc' },
-    });
+  async listEstoque(filters: ProductFilterDto = {}) {
+    const page = Math.max(1, Number(filters.page) || 1);
+    const limit = Math.max(1, Math.min(Number(filters.limit) || 20, 500));
+    const offset = (page - 1) * limit;
+
+    const qb = this.productRepo
+      .createQueryBuilder('p')
+      .leftJoinAndSelect('p.tipo', 't')
+      .leftJoinAndSelect('p.cor', 'c')
+      .leftJoinAndSelect('p.material', 'm')
+      .leftJoinAndSelect('p.tamanho', 's')
+      .leftJoinAndSelect('p.estoque', 'e')
+      .orderBy({ 'p.nome': 'asc' })
+      .limit(limit)
+      .offset(offset);
+
+    const search = filters.search?.trim();
+    if (search) {
+      qb.andWhere('(lower(p.nome) like lower(?) or lower(p.codigo) like lower(?))', [`%${search}%`, `%${search}%`]);
+    }
+    if (filters.tipo) {
+      qb.andWhere('lower(t.nome) like lower(?)', [`%${filters.tipo}%`]);
+    }
+    if (filters.cor) {
+      qb.andWhere('lower(c.nome) like lower(?)', [`%${filters.cor}%`]);
+    }
+    if (filters.material) {
+      qb.andWhere('lower(m.nome) like lower(?)', [`%${filters.material}%`]);
+    }
+    if (filters.tamanho) {
+      qb.andWhere('lower(s.nome) like lower(?)', [`%${filters.tamanho}%`]);
+    }
+
+    const [produtos, total] = await Promise.all([qb.getResultList(), qb.getCount()]);
     const historyRepo = this.stockHistoryRepo;
-    const result = await Promise.all(
+    const items = await Promise.all(
       produtos.map(async (p) => {
         const ultimoHistorico = await historyRepo.findOne(
           { produto: p },
@@ -358,7 +455,7 @@ export class ProdutosService {
           tipo: p.tipo?.nome,
           cor: p.cor?.nome,
           material: p.material?.nome,
-          tamanho: p.tamanho?.codigo,
+          tamanho: p.tamanho?.nome,
           quantidadeAtual: p.estoque?.quantidadeAtual ?? 0,
           atualizadoEm: ultimoHistorico?.dataMudanca ?? p.updatedAt ?? p.createdAt,
           historico: ultimoHistorico
@@ -377,15 +474,31 @@ export class ProdutosService {
         };
       }),
     );
-    return result;
+    return { items, total, page, perPage: limit };
   }
 
   async updateProduct(id: string, dto: UpdateProductDto, userId?: string) {
-    const product = await this.productRepo.findOne({ id });
+    const product = await this.productRepo.findOne({ id }, { populate: ['tipo', 'cor', 'material', 'tamanho'] });
     if (!product) {
-      throw new NotFoundException('Produto nÃ£o encontrado');
+      throw new NotFoundException('Produto n?o encontrado');
     }
     if (dto.nome) {
+      const dupQuery = this.productRepo
+        .createQueryBuilder('p')
+        .where('lower(p.nome) = lower(?)', [dto.nome])
+        .andWhere('p.tipo_id = ?', [product.tipo?.id])
+        .andWhere('p.id <> ?', [id]);
+      if (product.cor) dupQuery.andWhere('p.cor_id = ?', [product.cor.id]);
+      else dupQuery.andWhere('p.cor_id is null');
+      if (product.material) dupQuery.andWhere('p.material_id = ?', [product.material.id]);
+      else dupQuery.andWhere('p.material_id is null');
+      if (product.tamanho) dupQuery.andWhere('p.tamanho_id = ?', [product.tamanho.id]);
+      else dupQuery.andWhere('p.tamanho_id is null');
+
+      const duplicated = await dupQuery.getSingleResult();
+      if (duplicated) {
+        throw new BadRequestException('Já existe um produto igual (nome, tipo e atributos)');
+      }
       product.nome = dto.nome;
     }
     if (dto.observacao !== undefined) {
@@ -541,4 +654,3 @@ export class ProdutosService {
     return { deleted: true, deletedBy: userId };
   }
 }
-

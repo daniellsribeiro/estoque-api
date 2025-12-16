@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateCustomerDto } from './dto/create-customer.dto';
@@ -12,6 +12,7 @@ import { CreateStockAdjustDto } from './dto/create-stock-adjust.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductPriceDto } from './dto/update-product-price.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
+import { ProductFilterDto } from './dto/product-filter.dto';
 import { ProdutosService } from './produtos.service';
 
 @Controller('produtos')
@@ -112,13 +113,13 @@ export class ProdutosController {
   }
 
   @Get()
-  listProducts() {
-    return this.produtosService.listProducts();
+  listProducts(@Query() query: ProductFilterDto) {
+    return this.produtosService.listProducts(query);
   }
 
   @Get('estoque')
-  listEstoque() {
-    return this.produtosService.listEstoque();
+  listEstoque(@Query() query: ProductFilterDto) {
+    return this.produtosService.listEstoque(query);
   }
 
   @Post(':id/preco')

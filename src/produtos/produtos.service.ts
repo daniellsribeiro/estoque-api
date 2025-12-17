@@ -27,6 +27,7 @@ import { SaleItem } from '../vendas/entities/sale-item.entity';
 import { ProductPrice } from './entities/product-price.entity';
 import { ProductPriceHistory } from './entities/product-price-history.entity';
 import { Purchase } from '../compras/entities/purchase.entity';
+import { PreferencesService } from '../preferences/preferences.service';
 
 @Injectable()
 export class ProdutosService {
@@ -59,6 +60,7 @@ export class ProdutosService {
     private readonly purchaseRepo: EntityRepository<Purchase>,
     @InjectRepository(SaleItem)
     private readonly saleItemRepo: EntityRepository<SaleItem>,
+    private readonly preferencesService: PreferencesService,
   ) {}
 
   async createType(dto: CreateProductTypeDto, userId?: string) {
@@ -303,7 +305,7 @@ export class ProdutosService {
   async createProduct(dto: CreateProductDto, userId?: string) {
     const tipo = await this.typeRepo.findOne({ id: dto.tipoProdutoId });
     if (!tipo) {
-      throw new NotFoundException('Tipo de produto n?o encontrado');
+      throw new NotFoundException('Tipo de produto não encontrado');
     }
 
     const cor = dto.corId ? await this.colorRepo.findOne({ id: dto.corId }) : undefined;
@@ -419,6 +421,7 @@ export class ProdutosService {
       .leftJoinAndSelect('p.material', 'm')
       .leftJoinAndSelect('p.tamanho', 's')
       .leftJoinAndSelect('p.estoque', 'e')
+      .leftJoinAndSelect('p.preco', 'pr')
       .orderBy({ 'p.nome': 'asc' })
       .limit(limit)
       .offset(offset);
@@ -458,6 +461,7 @@ export class ProdutosService {
           tamanho: p.tamanho?.nome,
           quantidadeAtual: p.estoque?.quantidadeAtual ?? 0,
           atualizadoEm: ultimoHistorico?.dataMudanca ?? p.updatedAt ?? p.createdAt,
+          precoVendaAtual: p.preco?.precoVendaAtual ?? null,
           historico: ultimoHistorico
             ? {
                 quantidadeAnterior: ultimoHistorico.quantidadeAnterior,
@@ -477,10 +481,51 @@ export class ProdutosService {
     return { items, total, page, perPage: limit };
   }
 
+  async listEstoqueAlerta() {
+    const pref = await this.preferencesService.find();
+    const alerta = pref?.alertaEstoque ?? 0;
+    const qb = this.productRepo
+      .createQueryBuilder('p')
+      .leftJoinAndSelect('p.tipo', 't')
+      .leftJoinAndSelect('p.cor', 'c')
+      .leftJoinAndSelect('p.material', 'm')
+      .leftJoinAndSelect('p.tamanho', 's')
+      .leftJoinAndSelect('p.estoque', 'e')
+      .where('coalesce(e.quantidade_atual, 0) <= ?', [alerta])
+      .orderBy({ 'p.nome': 'asc' });
+
+    const produtos = await qb.getResultList();
+    const itens = await Promise.all(
+      produtos.map(async (p) => {
+        const lastHist = await this.stockHistoryRepo.findOne(
+          { produto: p },
+          { orderBy: { dataMudanca: 'desc', createdAt: 'desc' } },
+        );
+        const ultimaMudanca = lastHist?.dataMudanca ?? p.updatedAt ?? p.createdAt;
+        return {
+          id: p.id,
+          codigo: p.codigo,
+          nome: p.nome,
+          tipo: p.tipo?.nome,
+          cor: p.cor?.nome,
+          material: p.material?.nome,
+          tamanho: p.tamanho?.nome,
+          quantidadeAtual: p.estoque?.quantidadeAtual ?? 0,
+          ultimaMudanca,
+        };
+      }),
+    );
+    return itens.sort((a, b) => {
+      const aTime = a.ultimaMudanca ? new Date(a.ultimaMudanca).getTime() : 0;
+      const bTime = b.ultimaMudanca ? new Date(b.ultimaMudanca).getTime() : 0;
+      return bTime - aTime;
+    });
+  }
+
   async updateProduct(id: string, dto: UpdateProductDto, userId?: string) {
     const product = await this.productRepo.findOne({ id }, { populate: ['tipo', 'cor', 'material', 'tamanho'] });
     if (!product) {
-      throw new NotFoundException('Produto n?o encontrado');
+      throw new NotFoundException('Produto não encontrado');
     }
     if (dto.nome) {
       const dupQuery = this.productRepo

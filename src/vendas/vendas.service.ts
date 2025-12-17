@@ -14,32 +14,27 @@ import { UpdateSalePaymentDto } from './dto/update-sale-payment.dto';
 import { MarkSalePaidDto } from './dto/mark-sale-paid.dto';
 import { SaleItem } from './entities/sale-item.entity';
 import { Sale } from './entities/sale.entity';
+import { DevolverVendaDto } from './dto/devolver-venda.dto';
+import { CancelarVendaDto } from './dto/cancelar-venda.dto';
+import { SaleFilterDto } from './dto/sale-filter.dto';
 
 @Injectable()
 export class VendasService {
   constructor(
-    @InjectRepository(Sale)
-    private readonly saleRepo: EntityRepository<Sale>,
-    @InjectRepository(SaleItem)
-    private readonly saleItemRepo: EntityRepository<SaleItem>,
-    @InjectRepository(Product)
-    private readonly productRepo: EntityRepository<Product>,
-    @InjectRepository(ProductStock)
-    private readonly stockRepo: EntityRepository<ProductStock>,
-    @InjectRepository(ProductStockHistory)
-    private readonly stockHistoryRepo: EntityRepository<ProductStockHistory>,
-    @InjectRepository(Customer)
-    private readonly customerRepo: EntityRepository<Customer>,
-    @InjectRepository(PaymentType)
-    private readonly paymentTypeRepo: EntityRepository<PaymentType>,
-    @InjectRepository(CardAccount)
-    private readonly cardAccountRepo: EntityRepository<CardAccount>,
-    @InjectRepository(Recebimento)
-    private readonly recebimentoRepo: EntityRepository<Recebimento>,
+    @InjectRepository(Sale) private readonly saleRepo: EntityRepository<Sale>,
+    @InjectRepository(SaleItem) private readonly saleItemRepo: EntityRepository<SaleItem>,
+    @InjectRepository(Product) private readonly productRepo: EntityRepository<Product>,
+    @InjectRepository(ProductStock) private readonly stockRepo: EntityRepository<ProductStock>,
+    @InjectRepository(ProductStockHistory) private readonly stockHistoryRepo: EntityRepository<ProductStockHistory>,
+    @InjectRepository(Customer) private readonly customerRepo: EntityRepository<Customer>,
+    @InjectRepository(PaymentType) private readonly paymentTypeRepo: EntityRepository<PaymentType>,
+    @InjectRepository(CardAccount) private readonly cardAccountRepo: EntityRepository<CardAccount>,
+    @InjectRepository(Recebimento) private readonly recebimentoRepo: EntityRepository<Recebimento>,
     private readonly financeiroService: FinanceiroService,
   ) {}
-  private sumRecebimentosLiquido(recebs: Recebimento[]) {
-    return recebs.reduce((sum, r) => sum + Number(r.valorLiquido ?? r.valorBruto ?? 0), 0);
+
+  private sumRecebimentosLiquido(recs: Recebimento[]) {
+    return recs.reduce((sum, r) => sum + Number(r.valorLiquido ?? r.valorBruto ?? 0), 0);
   }
 
   private parseDate(value?: string) {
@@ -49,14 +44,7 @@ export class VendasService {
     return d;
   }
 
-  async listSales(filters: {
-    dataInicio?: string;
-    dataFim?: string;
-    clienteNome?: string;
-    tipoPagamentoId?: string;
-    tipoPagamento?: string;
-    status?: string;
-  } = {}): Promise<any[]> {
+  async listSales(filters: SaleFilterDto = {}): Promise<any[]> {
     const qb = this.saleRepo
       .createQueryBuilder('s')
       .leftJoinAndSelect('s.cliente', 'c')
@@ -65,9 +53,13 @@ export class VendasService {
     const ini = this.parseDate(filters.dataInicio);
     const fim = this.parseDate(filters.dataFim);
     if (ini) qb.andWhere('s.data >= ?', [ini]);
-    if (fim) qb.andWhere('s.data <= ?', [fim]);
+    if (fim) {
+      const fimExclusivo = new Date(fim);
+      fimExclusivo.setDate(fimExclusivo.getDate() + 1);
+      qb.andWhere('s.data < ?', [fimExclusivo]);
+    }
     if (filters.clienteNome) qb.andWhere('lower(c.nome) like ?', [`%${filters.clienteNome.toLowerCase()}%`]);
-    const tipoId = filters.tipoPagamentoId || filters.tipoPagamento;
+    const tipoId = (filters as any).tipoPagamentoId || (filters as any).tipoPagamento;
     if (tipoId) qb.andWhere('tp.id = ?', [tipoId]);
     if (filters.status) qb.andWhere('lower(s.status) = ?', [filters.status.toLowerCase()]);
 
@@ -76,6 +68,7 @@ export class VendasService {
     const sales = await qb.getResultList();
     const ids = sales.map((s) => s.id);
     if (ids.length === 0) return sales;
+
     const recs = await this.recebimentoRepo.find(
       { venda: { $in: ids } },
       { orderBy: { parcelaNumero: 'DESC' }, populate: ['venda'] },
@@ -83,15 +76,11 @@ export class VendasService {
     const lastBySale = new Map<string, Recebimento>();
     for (const r of recs) {
       const saleId = (r.venda as any)?.id ?? (r as any).venda?.id;
-      if (saleId && !lastBySale.has(saleId)) {
-        lastBySale.set(saleId, r);
-      }
+      if (saleId && !lastBySale.has(saleId)) lastBySale.set(saleId, r);
     }
     sales.forEach((s) => {
       const last = lastBySale.get(s.id);
-      if (last) {
-        s.status = this.computeStatusFromRecebimentos([last], s.status);
-      }
+      if (last) s.status = this.computeStatusFromRecebimentos([last], s.status);
     });
     return sales;
   }
@@ -100,20 +89,10 @@ export class VendasService {
     const sale = await this.saleRepo.findOne(
       { id },
       {
-        populate: [
-          'cliente',
-          'tipoPagamento',
-          'itens',
-          'itens.item',
-          'itens.item.tipo',
-          'itens.item.cor',
-          'itens.item.material',
-        ],
+        populate: ['cliente', 'tipoPagamento', 'itens', 'itens.item', 'itens.item.tipo', 'itens.item.cor', 'itens.item.material'],
       },
     );
-    if (!sale) {
-      throw new NotFoundException('Venda nÇœo encontrada');
-    }
+    if (!sale) throw new NotFoundException('Venda não encontrada');
     const recebimentos = await this.recebimentoRepo.find(
       { venda: sale },
       { populate: ['tipoPagamento', 'cartaoConta'], orderBy: { parcelaNumero: 'ASC' } },
@@ -121,9 +100,7 @@ export class VendasService {
     const status = this.computeStatusFromRecebimentos(recebimentos, sale.status);
     const recebimentosView = recebimentos.map((r) => {
       const payload: any = { ...r };
-      if (!r.dataRecebida || !r.dataPrevista) {
-        delete payload.dataPrevista;
-      }
+      if (!r.dataRecebida || !r.dataPrevista) delete payload.dataPrevista;
       payload.dataRecebida = r.dataRecebida ?? null;
       return payload;
     });
@@ -145,6 +122,7 @@ export class VendasService {
   private computeStatusFromRecebimentos(recebs: Recebimento[], fallback: string) {
     if (!recebs || recebs.length === 0) return fallback;
     const statusDoRec = (r: Recebimento) => {
+      if ((r as any).status === 'devolucao') return 'devolucao';
       if (r.status === 'cancelado') return 'cancelado';
       const hoje = new Date();
       hoje.setHours(0, 0, 0, 0);
@@ -152,7 +130,6 @@ export class VendasService {
       if (prevista) prevista.setHours(0, 0, 0, 0);
       const recebida = r.dataRecebida ? new Date(r.dataRecebida) : null;
       if (recebida) recebida.setHours(0, 0, 0, 0);
-
       if (!recebida) return 'pendente';
       if (prevista && hoje < prevista) return 'pago';
       return 'recebido';
@@ -160,10 +137,9 @@ export class VendasService {
 
     const sorted = [...recebs].sort((a, b) => (b.parcelaNumero ?? 0) - (a.parcelaNumero ?? 0));
     const statuses = sorted.map(statusDoRec);
-    const allCancel = statuses.every((s) => s === 'cancelado');
-    if (allCancel) return 'cancelado';
-    const allRecebido = statuses.every((s) => s === 'recebido');
-    if (allRecebido) return 'recebido';
+    if (statuses.every((s) => s === 'cancelado')) return 'cancelado';
+    if (statuses.includes('devolucao')) return 'devolucao';
+    if (statuses.every((s) => s === 'recebido')) return 'recebido';
     const lastStatus = statuses[0] ?? fallback;
     return lastStatus === 'recebido' ? 'pago' : lastStatus;
   }
@@ -171,9 +147,17 @@ export class VendasService {
   private parseDateOnly(dateStr: string) {
     const parsed = new Date(`${dateStr}T00:00:00`);
     if (Number.isNaN(parsed.getTime())) {
-      throw new BadRequestException('Data invÃ¡lida');
+      throw new BadRequestException('Data invalida');
     }
     return parsed;
+  }
+
+  private parseDateWithTimeIfToday(dateStr: string) {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    if (dateStr === todayIso) {
+      return new Date();
+    }
+    return this.parseDateOnly(dateStr);
   }
 
   private isDateReached(prevista: Date, referencia: Date) {
@@ -194,33 +178,21 @@ export class VendasService {
   }
 
   async createSale(dto: CreateSaleDto, userId?: string): Promise<any> {
-    if (!dto.itens || dto.itens.length === 0) {
-      throw new BadRequestException('Inclua ao menos um item na venda');
-    }
-    if (dto.parcelas < 1) {
-      throw new BadRequestException('NÇ§mero de parcelas invÇ­lido');
-    }
+    if (!dto.itens || dto.itens.length === 0) throw new BadRequestException('Inclua ao menos um item na venda');
+    if (dto.parcelas < 1) throw new BadRequestException('Número de parcelas inválido');
 
     const cliente = await this.customerRepo.findOne({ id: dto.clienteId });
-    if (!cliente) {
-      throw new NotFoundException('Cliente nÇœo encontrado');
-    }
+    if (!cliente) throw new NotFoundException('Cliente não encontrado');
     const tipoPagamento = await this.paymentTypeRepo.findOne({ id: dto.tipoPagamentoId });
-    if (!tipoPagamento) {
-      throw new NotFoundException('Tipo de pagamento nÇœo encontrado');
-    }
+    if (!tipoPagamento) throw new NotFoundException('Tipo de pagamento não encontrado');
 
     const desc = tipoPagamento.descricao?.toLowerCase() ?? '';
     const descNorm = desc.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const cardRequired =
-      this.isCredit(desc) ||
-      desc.includes('pix') ||
-      descNorm.includes('debito');
-    if (cardRequired && !dto.cartaoContaId) {
-      throw new BadRequestException('Selecione o cartão/conta para esta forma de pagamento');
-    }
+    const cardRequired = this.isCredit(desc) || desc.includes('pix') || descNorm.includes('debito');
+    if (cardRequired && !dto.cartaoContaId) throw new BadRequestException('Selecione o cartão/conta para esta forma de pagamento');
+
     const em = this.saleRepo.getEntityManager();
-    const dataVenda = this.parseDateOnly(dto.data);
+    const dataVenda = this.parseDateWithTimeIfToday(dto.data);
     const sale = this.saleRepo.create({
       data: dataVenda,
       cliente,
@@ -236,18 +208,13 @@ export class VendasService {
       updatedById: userId,
     });
     em.persist(sale);
-    // garante id da venda antes de registrar historico de estoque
     await em.flush();
 
     let totalItens = 0;
     for (const it of dto.itens) {
       const produto = await this.productRepo.findOne({ id: it.produtoId }, { populate: ['estoque'] });
-      if (!produto) {
-        throw new NotFoundException('Produto nÇœo encontrado');
-      }
-      if (it.qtde <= 0) {
-        throw new BadRequestException('Quantidade deve ser maior que zero');
-      }
+      if (!produto) throw new NotFoundException('Produto não encontrado');
+      if (it.qtde <= 0) throw new BadRequestException('Quantidade deve ser maior que zero');
 
       let estoque = produto.estoque;
       if (!estoque) {
@@ -261,9 +228,7 @@ export class VendasService {
         em.persist(estoque);
       }
       const disponivel = estoque.quantidadeAtual ?? 0;
-      if (it.qtde > disponivel) {
-        throw new BadRequestException(`Estoque insuficiente para o produto ${produto.nome}`);
-      }
+      if (it.qtde > disponivel) throw new BadRequestException(`Estoque insuficiente para o produto ${produto.nome}`);
 
       const novaQuantidade = disponivel - it.qtde;
       estoque.quantidadeAtual = novaQuantidade;
@@ -324,28 +289,22 @@ export class VendasService {
       };
       const hojeRef = new Date();
       const dataPagNorm = normalizeDate(dataPag);
-      const offsets =
-        await this.financeiroService.computeOffsetsPreview({
-          parcelas: dto.parcelas ?? 1,
-          tipoPagamentoId: dto.tipoPagamentoId,
-          cartaoContaId: dto.cartaoContaId,
-          regraId: dto.regraId,
-          usarEscalonadoPadrao: dto.usarEscalonadoPadrao,
-          prazoRecebimentoDias: dto.prazoRecebimentoDias,
-        });
+      const offsets = await this.financeiroService.computeOffsetsPreview({
+        parcelas: dto.parcelas ?? 1,
+        tipoPagamentoId: dto.tipoPagamentoId,
+        cartaoContaId: dto.cartaoContaId,
+        regraId: dto.regraId,
+        usarEscalonadoPadrao: dto.usarEscalonadoPadrao,
+        prazoRecebimentoDias: dto.prazoRecebimentoDias,
+      });
 
       recebimentos.forEach((rec, idx) => {
         const offset = offsets[idx] ?? offsets[0] ?? 0;
         const previstaFinal = normalizeDate(new Date(dataPagNorm.getTime()));
         previstaFinal.setDate(previstaFinal.getDate() + offset);
-
         rec.dataPrevista = previstaFinal;
         rec.dataRecebida = dataPagNorm;
-        if (isImmediatePayment || this.isDateReached(previstaFinal, hojeRef)) {
-          rec.status = 'recebido';
-        } else {
-          rec.status = 'pago';
-        }
+        rec.status = isImmediatePayment || this.isDateReached(previstaFinal, hojeRef) ? 'recebido' : 'pago';
         rec.updatedById = userId;
         em.persist(rec);
       });
@@ -364,18 +323,14 @@ export class VendasService {
   }
 
   async markSalePaid(id: string, dto: MarkSalePaidDto, userId?: string) {
-    const sale = await this.saleRepo.findOne(
-      { id },
-      { populate: ['itens', 'itens.item', 'tipoPagamento'] },
-    );
+    const sale = await this.saleRepo.findOne({ id }, { populate: ['itens', 'itens.item', 'tipoPagamento'] });
     if (!sale) throw new NotFoundException('Venda não encontrada');
     const recebimentos = await this.recebimentoRepo.find({ venda: sale }, { populate: ['cartaoConta', 'tipoPagamento'] });
     const dataPagBase = dto.dataPagamento ? this.parseDateOnly(dto.dataPagamento) : new Date();
     const dataPag = this.parseDateOnly(dataPagBase.toISOString().slice(0, 10));
     const dataVenda = sale.data ? this.parseDateOnly(sale.data.toISOString().slice(0, 10)) : null;
-    if (dataVenda && dataPag < dataVenda) {
-      throw new BadRequestException('Data de pagamento não pode ser anterior à data da venda');
-    }
+    if (dataVenda && dataPag < dataVenda) throw new BadRequestException('Data de pagamento não pode ser anterior à data da venda');
+
     const normalizeDate = (d: Date) => {
       const nd = new Date(d);
       nd.setHours(0, 0, 0, 0);
@@ -415,12 +370,8 @@ export class VendasService {
       const offset = offsets[idx] ?? offsets[0] ?? 0;
       const previstaAlvo = normalizeDate(new Date(dataPagNorm.getTime()));
       previstaAlvo.setDate(previstaAlvo.getDate() + offset);
-
-      if (this.isDateReached(previstaAlvo, hojeRef) || isPix) {
-        r.status = 'recebido';
-      } else {
-        r.status = 'pago';
-      }
+      if (this.isDateReached(previstaAlvo, hojeRef) || isPix) r.status = 'recebido';
+      else r.status = 'pago';
       r.dataPrevista = previstaAlvo;
       r.dataRecebida = dataPagNorm;
       r.updatedById = userId;
@@ -436,15 +387,13 @@ export class VendasService {
     return this.getSale(id);
   }
 
-async cancelSale(id: string, userId?: string) {
-    const sale = await this.saleRepo.findOne(
-      { id },
-      { populate: ['itens', 'itens.item', 'itens.item.estoque'] },
-    );
-    if (!sale) throw new NotFoundException('Venda nÇœo encontrada');
-    if (sale.status === 'cancelada') {
-      throw new BadRequestException('Venda jÇ­ cancelada');
+  async cancelSale(id: string, dto: CancelarVendaDto, userId?: string) {
+    if (!dto.dataCancelamento || !dto.motivoCancelamento?.trim()) {
+      throw new BadRequestException('Informe data e motivo do cancelamento.');
     }
+    const sale = await this.saleRepo.findOne({ id }, { populate: ['itens', 'itens.item', 'itens.item.estoque'] });
+    if (!sale) throw new NotFoundException('Venda não encontrada');
+    if (sale.status === 'cancelada') throw new BadRequestException('Venda já cancelada');
 
     const em = this.saleRepo.getEntityManager();
     for (const it of sale.itens) {
@@ -467,7 +416,7 @@ async cancelSale(id: string, userId?: string) {
         motivo: 'CANCELAMENTO_VENDA',
         referencia: sale.id,
         vendaId: sale.id,
-        dataMudanca: new Date(),
+        dataMudanca: this.parseDateWithTimeIfToday(dto.dataCancelamento),
         createdById: userId,
       };
       em.persist(estoque);
@@ -481,6 +430,67 @@ async cancelSale(id: string, userId?: string) {
     });
 
     sale.status = 'cancelada';
+    sale.dataCancelamento = this.parseDateWithTimeIfToday(dto.dataCancelamento);
+    sale.motivoCancelamento = dto.motivoCancelamento || null;
+    sale.updatedById = userId;
+    await em.flush();
+    return this.getSale(id);
+  }
+
+  async devolverSale(id: string, dto: DevolverVendaDto, userId?: string) {
+    const sale = await this.saleRepo.findOne({ id }, { populate: ['itens', 'itens.item', 'itens.item.estoque', 'tipoPagamento'] });
+    if (!sale) throw new NotFoundException('Venda não encontrada');
+    const statusLower = (sale.status || '').toLowerCase();
+    if (!['paga', 'pago', 'recebido'].includes(statusLower)) {
+      throw new BadRequestException('Devolução permitida apenas para vendas pagas ou recebidas');
+    }
+
+    const em = this.saleRepo.getEntityManager();
+    const dataDev = dto.dataDevolucao ? this.parseDateWithTimeIfToday(dto.dataDevolucao) : new Date();
+
+    for (const it of sale.itens) {
+      const produto = it.item;
+      let estoque = produto.estoque;
+      if (!estoque) {
+        estoque = this.stockRepo.create({
+          produto,
+          quantidadeAtual: 0,
+          createdById: userId,
+          updatedById: userId,
+        });
+        em.persist(estoque);
+      }
+      const anterior = estoque.quantidadeAtual ?? 0;
+      const nova = anterior + it.qtde;
+      estoque.quantidadeAtual = nova;
+      estoque.updatedById = userId;
+      em.persist(estoque);
+
+      const history = new ProductStockHistory();
+      history.produto = produto;
+      history.quantidadeAnterior = anterior;
+      history.quantidadeNova = nova;
+      const diff = nova - anterior;
+      history.quantidadeAdicionada = diff > 0 ? diff : 0;
+      history.quantidadeSubtraida = diff < 0 ? Math.abs(diff) : 0;
+      history.motivo = 'DEVOLUCAO_VENDA';
+      history.referencia = `Venda ${sale.id}`;
+      history.vendaId = sale.id;
+      history.dataMudanca = dataDev;
+      history.createdById = userId;
+      em.persist(history);
+    }
+
+    const recebimentos = await this.recebimentoRepo.find({ venda: sale });
+    recebimentos.forEach((r) => {
+      (r as any).status = 'devolucao';
+      r.updatedById = userId;
+      this.recebimentoRepo.getEntityManager().persist(r);
+    });
+
+    sale.status = 'devolucao';
+    sale.dataDevolucao = dataDev;
+    sale.motivoDevolucao = dto.motivo || null;
     sale.updatedById = userId;
     await em.flush();
     return this.getSale(id);
@@ -488,20 +498,15 @@ async cancelSale(id: string, userId?: string) {
 
   async updateSalePayment(id: string, dto: UpdateSalePaymentDto, userId?: string) {
     const sale = await this.saleRepo.findOne({ id }, { populate: ['itens', 'cliente', 'tipoPagamento'] });
-    if (!sale) throw new NotFoundException('Venda nÇœo encontrada');
-    if (sale.status === 'paga') {
-      throw new BadRequestException('NÇœo Ç¸ possÇ­vel alterar pagamento de venda paga');
-    }
+    if (!sale) throw new NotFoundException('Venda não encontrada');
+    if (sale.status === 'paga') throw new BadRequestException('Não é possível alterar pagamento de venda paga');
 
     const tipoPagamento = await this.paymentTypeRepo.findOne({ id: dto.tipoPagamentoId });
-    if (!tipoPagamento) throw new NotFoundException('Tipo de pagamento nÇœo encontrado');
+    if (!tipoPagamento) throw new NotFoundException('Tipo de pagamento não encontrado');
     const cartao = dto.cartaoContaId ? await this.cardAccountRepo.findOne({ id: dto.cartaoContaId }) : undefined;
     const cardRequired = this.isCredit(tipoPagamento.descricao) || tipoPagamento.descricao.toLowerCase().includes('pix') || tipoPagamento.descricao.toLowerCase().includes('deb');
-    if (cardRequired && !cartao) {
-      throw new BadRequestException('Selecione um cartao/conta para este pagamento');
-    }
+    if (cardRequired && !cartao) throw new BadRequestException('Selecione um cartao/conta para este pagamento');
 
-    // Cancela recebimentos anteriores
     const recebimentos = await this.recebimentoRepo.find({ venda: sale });
     recebimentos.forEach((r) => {
       r.status = 'cancelado';
@@ -551,7 +556,6 @@ async cancelSale(id: string, userId?: string) {
         const offset = offsets[idx] ?? offsets[0] ?? 0;
         const previstaFinal = normalizeDate(new Date(dataPagNorm.getTime()));
         previstaFinal.setDate(previstaFinal.getDate() + offset);
-
         rec.dataPrevista = previstaFinal;
         rec.dataRecebida = dataPagNorm;
         rec.status = isImmediatePayment || this.isDateReached(previstaFinal, hojeRef) ? 'recebido' : 'pago';

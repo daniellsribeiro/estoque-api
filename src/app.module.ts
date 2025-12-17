@@ -11,6 +11,7 @@ import { ProdutosModule } from './produtos/produtos.module';
 import { ComprasModule } from './compras/compras.module';
 import { VendasModule } from './vendas/vendas.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
+import { PreferencesModule } from './preferences/preferences.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { FinanceiroModule } from './financeiro/financeiro.module';
     ComprasModule,
     VendasModule,
     FinanceiroModule,
+    PreferencesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

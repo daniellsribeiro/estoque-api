@@ -61,4 +61,26 @@ export class UsersService {
     }
     return user;
   }
+
+  async updateStatus(id: string, active: boolean, actorId?: string) {
+    const user = await this.userRepository.findOne({ id });
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+    user.active = active;
+    user.updatedById = actorId;
+    await this.userRepository.getEntityManager().persistAndFlush(user);
+    return { id: user.id, active: user.active };
+  }
+
+  async updatePassword(id: string, password: string, actorId?: string) {
+    const user = await this.userRepository.findOne({ id });
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+    user.passwordHash = await bcrypt.hash(password, 10);
+    user.updatedById = actorId;
+    await this.userRepository.getEntityManager().persistAndFlush(user);
+    return { id: user.id, updated: true };
+  }
 }

@@ -34,5 +34,5 @@ export class Recebimento extends BaseAuditEntity {
   dataRecebida?: Date | null;
 
   @Property({ default: 'previsto' })
-  status: 'previsto' | 'pago' | 'recebido' | 'cancelado' = 'previsto';
+  status: 'previsto' | 'pago' | 'recebido' | 'cancelado' | 'devolucao' = 'previsto';
 }

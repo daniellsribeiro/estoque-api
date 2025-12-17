@@ -17,6 +17,7 @@ import { Purchase } from '../compras/entities/purchase.entity';
 import { SaleItem } from '../vendas/entities/sale-item.entity';
 import { ProdutosController } from './produtos.controller';
 import { ProdutosService } from './produtos.service';
+import { PreferencesModule } from '../preferences/preferences.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { ProdutosService } from './produtos.service';
       Purchase,
       SaleItem,
     ]),
+    PreferencesModule,
   ],
   controllers: [ProdutosController],
   providers: [ProdutosService],

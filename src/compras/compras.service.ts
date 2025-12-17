@@ -121,7 +121,7 @@ export class ComprasService {
     for (const it of dto.itens) {
       const product = await this.productRepo.findOne({ id: it.produtoId }, { populate: ["estoque"] });
       if (!product) {
-        throw new NotFoundException("Produto n�o encontrado");
+        throw new NotFoundException("Produto não encontrado");
       }
 
       let estoque = product.estoque;

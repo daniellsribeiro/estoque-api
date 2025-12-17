@@ -122,6 +122,11 @@ export class ProdutosController {
     return this.produtosService.listEstoque(query);
   }
 
+  @Get('estoque/alerta')
+  listEstoqueAlerta() {
+    return this.produtosService.listEstoqueAlerta();
+  }
+
   @Post(':id/preco')
   updateProductPrice(
     @Param('id') id: string,

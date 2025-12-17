@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  IsNotEmpty,
   IsUUID,
   MaxLength,
   Min,
@@ -14,8 +15,8 @@ import {
 import { Type } from 'class-transformer';
 
 class ExpenseItemInput {
-  @IsString()
-  @MaxLength(255)
+  @IsString({ message: 'Descrição é obrigatória' })
+  @MaxLength(255, { message: 'Descrição deve ter no máximo 255 caracteres' })
   descricao: string;
 
   @Type(() => Number)
@@ -33,10 +34,10 @@ export class CreateExpenseDto {
   @IsDateString()
   data: string;
 
-  @IsOptional()
   @IsString()
+  @IsNotEmpty({ message: 'Descrição é obrigatória' })
   @MaxLength(255)
-  descricao?: string;
+  descricao: string;
 
   @IsUUID('all')
   tipoPagamentoId: string;

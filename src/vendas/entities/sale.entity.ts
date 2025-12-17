@@ -39,6 +39,18 @@ export class Sale extends BaseAuditEntity {
   @Property()
   status: string;
 
+  @Property({ type: Date, nullable: true })
+  dataDevolucao?: Date | null;
+
+  @Property({ nullable: true })
+  motivoDevolucao?: string | null;
+
+  @Property({ type: Date, nullable: true })
+  dataCancelamento?: Date | null;
+
+  @Property({ nullable: true })
+  motivoCancelamento?: string | null;
+
   @Property({ nullable: true })
   observacoes?: string;
 

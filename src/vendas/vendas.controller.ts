@@ -6,6 +6,8 @@ import { UpdateSalePaymentDto } from './dto/update-sale-payment.dto';
 import { MarkSalePaidDto } from './dto/mark-sale-paid.dto';
 import { VendasService } from './vendas.service';
 import { SaleFilterDto } from './dto/sale-filter.dto';
+import { DevolverVendaDto } from './dto/devolver-venda.dto';
+import { CancelarVendaDto } from './dto/cancelar-venda.dto';
 
 @Controller('vendas')
 @UseGuards(JwtAuthGuard)
@@ -33,8 +35,13 @@ export class VendasController {
   }
 
   @Patch(':id/cancelar')
-  cancel(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.vendasService.cancelSale(id, user?.id);
+  cancel(@Param('id') id: string, @Body() dto: CancelarVendaDto, @CurrentUser() user: any) {
+    return this.vendasService.cancelSale(id, dto, user?.id);
+  }
+
+  @Patch(':id/devolver')
+  devolver(@Param('id') id: string, @Body() dto: DevolverVendaDto, @CurrentUser() user: any) {
+    return this.vendasService.devolverSale(id, dto, user?.id);
   }
 
   @Patch(':id/pagamento')
